@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(java -version)",
+      "Bash(javac -version)",
+      "Read(//f//**)",
+      "Read(//c/Program Files/Java/latest/**)",
+      "Read(//c/Program Files/Java/**)",
+      "Read(//c/Program Files/**)",
+      "Read(//c/Program Files \\\\\\(x86\\\\\\)/Common Files/Oracle/Java/java8path/**)",
+      "Read(//c/Program Files \\\\\\(x86\\\\\\)/Common Files/Oracle/Java/**)",
+      "Bash(echo \"--- /d/java ---\"; ls -la /d/java 2>&1 | head -30; echo \"--- find javac in /d ---\"; find /d -maxdepth 4 -name \"javac.exe\" 2>/dev/null | head; echo \"--- find javac in /c ---\"; find /c -maxdepth 6 -name \"javac.exe\" 2>/dev/null | head)",
+      "Read(//c/Users/ASUS/.jdks/openjdk-26/bin/**)",
+      "Bash(/c/Users/ASUS/.jdks/openjdk-26/bin/javac.exe -version)",
+      "Bash(/c/Users/ASUS/.jdks/openjdk-26/bin/java.exe -version)",
+      "Bash(/c/Users/ASUS/.jdks/openjdk-26/bin/javac.exe --release 8 -d out src/hainanjong/*.java)",
+      "Bash(/c/Users/ASUS/.jdks/openjdk-26/bin/java.exe -cp out hainanjong.Main)",
+      "Bash(java -cp out hainanjong.Main)",
+      "Bash(/c/Users/ASUS/.jdks/openjdk-26/bin/java.exe -Dfile.encoding=UTF-8 -cp out hainanjong.game.GameDemo)",
+      "Bash(echo \"exit=$?\")",
+      "Read(//tmp/**)",
+      "Bash(/c/Users/ASUS/.jdks/openjdk-26/bin/java.exe -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 -cp out hainanjong.game.GameDemo)",
+      "Bash(java -cp out hainanjong.game.GameDemo)",
+      "Bash(echo \"java8 exit=$?\")"
+    ]
+  }
+}
