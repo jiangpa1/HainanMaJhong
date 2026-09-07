@@ -35,4 +35,8 @@ public interface GameListener {
      */
     default void onTurnStart(Seat seat, String kind, long timeoutMs) {
     }
+
+    /** 某人报听（海南：0 无 / 1 天听 / 2 地听）。 */
+    default void onReport(Seat seat, int mode) {
+    }
 }

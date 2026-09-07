@@ -25,6 +25,7 @@ public class GameSnapshot {
         public List<MeldState> melds = new ArrayList<MeldState>();
         public List<Integer> flowers = new ArrayList<Integer>();
         public int lastDrawn = -1;
+        public int reportMode; // 报听：0 无 / 1 天听 / 2 地听
     }
 
     public static class MeldState {

@@ -30,4 +30,15 @@ public interface PlayerController {
      * {@code seat} 摸牌后，可以选择自摸胡 / 暗杠 / 补杠，否则应 {@code responder.pass()} 后出牌。
      */
     void onDrawChance(Seat seat, int drawnTile, List<Action> options, Responder responder);
+
+    /**
+     * 是否由引擎自动报听（海南天听/地听）。机器人/托管返回 true；真人返回 false（走界面按钮）。
+     */
+    default boolean isAutoReport() {
+        return false;
+    }
+
+    /** 出牌请求发出前，引擎把“本次能否报听”的提示交给控制器（真人据此弹按钮）。 */
+    default void prepareDiscard(boolean canReport) {
+    }
 }

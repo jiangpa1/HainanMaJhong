@@ -23,6 +23,11 @@ public class BotController implements PlayerController {
     }
 
     @Override
+    public boolean isAutoReport() {
+        return true; // 机器人自动报听
+    }
+
+    @Override
     public void onDiscardTurn(Seat seat, List<Integer> hand, int drawnTile, Responder r) {
         r.discard(pickDiscard(hand));
     }
