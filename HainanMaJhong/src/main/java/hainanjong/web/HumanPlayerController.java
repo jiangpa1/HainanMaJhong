@@ -45,6 +45,7 @@ public class HumanPlayerController implements PlayerController {
     private final long actionTimeoutMs;  // 吃碰杠胡/自摸响应超时（毫秒）
     private final AtomicInteger seq = new AtomicInteger();
     private final Map<Integer, Pending> pending = new HashMap<Integer, Pending>();
+    private volatile boolean reportHint; // 引擎给出：本次出牌能否报听
 
     public HumanPlayerController(Sender sender, long discardTimeoutMs, long actionTimeoutMs) {
         this.sender = sender;
@@ -84,6 +85,11 @@ public class HumanPlayerController implements PlayerController {
     }
 
     @Override
+    public void prepareDiscard(boolean canReport) {
+        this.reportHint = canReport;
+    }
+
+    @Override
     public void onDiscardTurn(Seat seat, List<Integer> hand, int drawnTile, Responder responder) {
         int id = seq.incrementAndGet();
         Map<String, Object> m = new HashMap<String, Object>();
@@ -92,6 +98,7 @@ public class HumanPlayerController implements PlayerController {
         m.put("reqId", id);
         m.put("hand", new ArrayList<Integer>(hand));
         m.put("drawnTile", drawnTile);
+        m.put("canReport", reportHint);
         m.put("timeoutMs", discardTimeoutMs);
         remember(id, responder, null, m);
         emit(m);
@@ -165,6 +172,14 @@ public class HumanPlayerController implements PlayerController {
         Pending p = take(reqId);
         if (p != null) {
             p.responder.discard(tile);
+        }
+    }
+
+    /** 前端点击“报听”：应答为报听（引擎会打出刚摸那张并锁定）。 */
+    public void baoTing(int reqId) {
+        Pending p = take(reqId);
+        if (p != null) {
+            p.responder.report();
         }
     }
 

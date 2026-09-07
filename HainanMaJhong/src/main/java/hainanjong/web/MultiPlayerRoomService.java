@@ -15,6 +15,10 @@ import hainanjong.game.Responder;
 import hainanjong.game.RoomManager;
 import hainanjong.game.RoundResult;
 import hainanjong.game.Seat;
+import hainanjong.rules.DealerFlow;
+import hainanjong.rules.HainanConfig;
+import hainanjong.rules.HainanFan;
+import hainanjong.rules.HainanScore;
 import hainanjong.service.MysqlService;
 import hainanjong.service.RedisService;
 import org.slf4j.Logger;
@@ -109,6 +113,12 @@ public class MultiPlayerRoomService {
         @Override public void onDrawChance(Seat seat, int drawnTile, List<Action> options, Responder r) {
             delegate.onDrawChance(seat, drawnTile, options, r);
         }
+        @Override public boolean isAutoReport() {
+            return delegate.isAutoReport();
+        }
+        @Override public void prepareDiscard(boolean canReport) {
+            delegate.prepareDiscard(canReport);
+        }
     }
 
     public static class Room {
@@ -126,6 +136,8 @@ public class MultiPlayerRoomService {
         public volatile boolean stop;
         public Thread blockThread;
         public volatile EngineStart resumeSeed; // 从 Redis 重建房间后，用于续跑本块
+        public HainanConfig cfg;                 // 房间可设项（创建房间弹窗）
+        public volatile DealerFlow flow;         // 当前块的庄/令/底分状态（含重建）
 
         Room(String code, long hostUserId) {
             this.code = code;
@@ -133,13 +145,20 @@ public class MultiPlayerRoomService {
         }
     }
 
-    /** 一块 16 局的起始参数（新建 = 默认；从 Redis 恢复 = 带已打到的把数与快照）。 */
+    /** 一块的起始参数（新建 = 默认；从 Redis 恢复 = 带已打到把数、流状态与快照）。 */
     private static final class EngineStart {
-        int startHand = 1;
-        Seat dealer = Seat.EAST;
+        HainanConfig cfg;
+        DealerFlow flow;       // 非空则用其继续；空则新开（随机首庄）
         long sessionId = -1L;
         Map<Seat, Integer> coins = new EnumMap<Seat, Integer>(Seat.class);
         GameSnapshot resume = null;
+    }
+
+    /** 新开一局/一轮：随机首庄 + 全新流状态。 */
+    private DealerFlow newFlow(Room room) {
+        HainanConfig cfg = room.cfg == null ? HainanConfig.defaultConfig() : room.cfg;
+        Seat first = Seat.values()[random.nextInt(4)];
+        return new DealerFlow(cfg, first);
     }
 
     // ==================== Redis 快照结构 ====================
@@ -160,6 +179,13 @@ public class MultiPlayerRoomService {
         public Map<String, Integer> coins = new LinkedHashMap<String, Integer>();
         public List<MemberInfo> members = new ArrayList<MemberInfo>();
         public GameSnapshot snapshot;   // 可空
+        public HainanConfig cfg;         // 可空
+        public String firstDealer;       // 庄流（海南）：首局庄
+        public int bottom;               // 当前庄底分
+        public int windIdx;              // 令 0..3
+        public int flowHandNo;           // 下把编号
+        public int firstDealerBegins;    // 首局庄已开始坐庄次数
+        public int handsPlayed;
     }
 
     // ==================== /room 入口 ====================
@@ -178,7 +204,7 @@ public class MultiPlayerRoomService {
             Map<String, Object> msg = mapper.readValue(payload, Map.class);
             String type = (String) msg.get("type");
             if ("createRoom".equals(type)) {
-                createRoom(session, userId == null ? 0L : userId);
+                createRoom(session, userId == null ? 0L : userId, msg.get("config"));
             } else if ("joinRoom".equals(type)) {
                 String code = msg.get("code") == null ? "" : String.valueOf(msg.get("code")).trim();
                 joinRoom(session, userId == null ? 0L : userId, code);
@@ -260,6 +286,8 @@ public class MultiPlayerRoomService {
                     m.human.act(reqId, ((Number) msg.get("index")).intValue());
                 } else if ("pass".equals(type)) {
                     m.human.pass(reqId);
+                } else if ("baoting".equals(type)) {
+                    m.human.baoTing(reqId);
                 } else if ("rematch".equals(type)) {
                     onRematch(room, userId);
                 } else if ("leaveRoom".equals(type) || "quit".equals(type)) {
@@ -344,15 +372,20 @@ public class MultiPlayerRoomService {
 
             Map<String, Object> match = new HashMap<String, Object>();
             match.put("type", "match");
-            match.put("total", MATCH_HANDS);
+            match.put("total", -1); // 打满四风，不固定把数
             sendJson(session, match);
 
             if (room.state == State.PLAYING && room.active != null) {
                 Map<String, Object> hs = new HashMap<String, Object>();
                 hs.put("type", "hand_start");
                 hs.put("hand", room.currentHand);
-                hs.put("total", MATCH_HANDS);
+                hs.put("total", -1);
                 hs.put("dealer", room.currentDealer == null ? Seat.EAST.name() : room.currentDealer.name());
+                if (room.flow != null) {
+                    hs.put("wind", room.flow.windIdx());
+                    hs.put("windName", DealerFlow.windName(room.flow.windIdx()));
+                    hs.put("bottom", room.flow.bottom);
+                }
                 hs.put("coins", coinView(room));
                 sendJson(session, hs);
                 pushSeatState(session, room, m.seat);
@@ -369,7 +402,7 @@ public class MultiPlayerRoomService {
 
     // ==================== 创建 / 加入 / 离开（等待房） ====================
 
-    private void createRoom(WebSocketSession session, long userId) {
+    private void createRoom(WebSocketSession session, long userId, Object cfgRaw) {
         if (userId <= 0) {
             sendJson(session, denied("请先登录后再创建房间"));
             return;
@@ -387,13 +420,28 @@ public class MultiPlayerRoomService {
                 code = String.valueOf(100000 + random.nextInt(900000));
             } while (roomsByCode.containsKey(code));
             room = new Room(code, userId);
+            room.cfg = parseConfig(cfgRaw);
             room.members.put(Seat.EAST, new Member(Seat.EAST, userId, nicknameOf(userId), session));
             roomsByCode.put(code, room);
         }
         codeByUser.put(userId, code);
         userOfSession.put(session.getId(), userId);
         sendRoomInfo(room, session);
-        log.info("用户 {} 创建房间 {}", userId, code);
+        log.info("用户 {} 创建房间 {}（海南配置 enabled={} 底分={}）", userId, code,
+                room.cfg.enabled, room.cfg.basePoint);
+    }
+
+    /** 创建房间配置：前端传入 JSON 对象 → HainanConfig；缺省用默认。 */
+    private HainanConfig parseConfig(Object raw) {
+        if (raw == null) {
+            return HainanConfig.defaultConfig();
+        }
+        try {
+            return mapper.convertValue(raw, HainanConfig.class);
+        } catch (Exception e) {
+            log.warn("解析房间配置失败，使用默认：{}", e.getMessage());
+            return HainanConfig.defaultConfig();
+        }
     }
 
     private void joinRoom(WebSocketSession session, long userId, String code) {
@@ -616,22 +664,30 @@ public class MultiPlayerRoomService {
         room.sessionId = sessionId;
         final long sid = sessionId;
 
-        Seat dealer = seed.dealer == null ? Seat.EAST : seed.dealer;
+        HainanConfig cfg = seed.cfg != null ? seed.cfg : (room.cfg != null ? room.cfg : HainanConfig.defaultConfig());
+        room.cfg = cfg;
+        DealerFlow flow = seed.flow;
         boolean resumeNext = seed.resume != null;
+        if (flow == null) {
+            flow = newFlow(room);
+        }
+        room.flow = flow;
         saveRoom(room, null);
 
         try {
-            for (int hand = seed.startHand; hand <= MATCH_HANDS; hand++) {
-                if (room.stop || room.state != State.PLAYING) {
-                    break;
-                }
+            while (!room.stop && room.state == State.PLAYING && !flow.finished) {
+                int hand = flow.handNo;
+                Seat dealer = flow.dealer;
                 room.currentHand = hand;
                 room.currentDealer = dealer;
                 Map<String, Object> hs = new HashMap<String, Object>();
                 hs.put("type", "hand_start");
                 hs.put("hand", hand);
-                hs.put("total", MATCH_HANDS);
+                hs.put("total", -1); // 打满四风，不固定总把数
                 hs.put("dealer", dealer.name());
+                hs.put("wind", flow.windIdx());
+                hs.put("windName", DealerFlow.windName(flow.windIdx()));
+                hs.put("bottom", flow.bottom);
                 hs.put("coins", coinView(room));
                 broadcastGame(room, hs);
 
@@ -641,13 +697,15 @@ public class MultiPlayerRoomService {
                     controllers.put(s, m == null ? new BotController() : m.controller);
                 }
                 GameConfig config = new GameConfig(true, dealer, DISCARD_TIMEOUT_MS, ACTION_TIMEOUT_MS,
-                        System.currentTimeMillis() + hand, true, 0);
+                        System.currentTimeMillis() + hand, true, 0, cfg.enabled, flow.windIdx());
                 RoomListener listener = new RoomListener(room);
                 RoomManager rm = new RoomManager(config, controllers, listener);
                 listener.setRoom(rm);
                 room.active = rm;
+                final int fhand = hand;
                 rm.setCheckpoint(snap -> {
                     room.currentSnap = snap;
+                    room.currentHand = fhand;
                     saveRoom(room, snap);
                 });
                 if (resumeNext) {
@@ -663,21 +721,23 @@ public class MultiPlayerRoomService {
                 }
                 RoundResult r = rm.getResult();
 
-                if (r.isDraw) {
-                    for (Seat s : Seat.values()) {
-                        room.coins.put(s, room.coins.get(s) - 1);
-                    }
-                } else {
-                    room.coins.put(r.winner, room.coins.get(r.winner) + 1);
-                    for (Seat s : Seat.values()) {
-                        if (s != r.winner) {
-                            room.coins.put(s, room.coins.get(s) - 1);
-                        }
-                    }
+                Map<Seat, List<Integer>> flMap = new EnumMap<Seat, List<Integer>>(Seat.class);
+                Map<Seat, List<Meld>> mMap = new EnumMap<Seat, List<Meld>>(Seat.class);
+                for (Seat s : Seat.values()) {
+                    Player pp = rm.getPlayer(s);
+                    flMap.put(s, pp == null ? new ArrayList<Integer>() : new ArrayList<Integer>(pp.flowers));
+                    mMap.put(s, pp == null ? new ArrayList<Meld>() : new ArrayList<Meld>(pp.melds));
                 }
+                HainanScore.Settlement st = HainanScore.settleRound(r, flow.dealer, flow.bottom, cfg,
+                        flMap, mMap, rm.deckSize(), rm.genChainHit(), dealerFirstGangSeat(dealer, rm));
+                Map<Seat, Integer> delta = st.delta;
+                for (Seat s : Seat.values()) {
+                    room.coins.put(s, room.coins.get(s) + delta.get(s));
+                }
+                Map<Seat, String> detailJsons = buildDetailJsons(st, flMap, mMap);
                 if (sid > 0) {
                     try {
-                        persistRound(sid, hand, r, room);
+                        persistRound(sid, hand, r, room, delta, detailJsons);
                         mysql.updateSessionRound(sid, hand);
                     } catch (Exception e) {
                         log.warn("保存对局数据失败：{}", e.getMessage());
@@ -689,7 +749,9 @@ public class MultiPlayerRoomService {
                 cu.put("coins", coinView(room));
                 broadcastGame(room, cu);
 
-                dealer = dealer.next();
+                flow.afterRound(r);
+                room.flow = flow;
+                saveRoom(room, null);
             }
 
             if (room.stop || room.state != State.PLAYING) {
@@ -756,6 +818,16 @@ public class MultiPlayerRoomService {
             rs.sessionId = room.sessionId;
             rs.currentHand = room.currentHand;
             rs.dealer = room.currentDealer == null ? null : room.currentDealer.name();
+            rs.cfg = room.cfg;
+            DealerFlow f = room.flow;
+            if (f != null) {
+                rs.firstDealer = f.firstDealer().name();
+                rs.bottom = f.bottom;
+                rs.windIdx = f.windIdx();
+                rs.flowHandNo = f.handNo;
+                rs.firstDealerBegins = f.begins();
+                rs.handsPlayed = f.handsPlayed();
+            }
             for (Seat s : Seat.values()) {
                 rs.coins.put(s.name(), room.coins.get(s) == null ? 0 : room.coins.get(s));
             }
@@ -800,15 +872,27 @@ public class MultiPlayerRoomService {
                 room.sessionId = rs.sessionId;
                 room.currentHand = rs.currentHand;
                 room.currentDealer = rs.dealer == null ? null : Seat.valueOf(rs.dealer);
+                room.cfg = rs.cfg != null ? rs.cfg : HainanConfig.defaultConfig();
                 for (String k : rs.coins.keySet()) {
                     room.coins.put(Seat.valueOf(k), rs.coins.get(k));
                 }
-                if (room.state == State.PLAYING && rs.snapshot != null) {
+                DealerFlow flow = null;
+                if (rs.firstDealer != null) {
+                    Seat first = Seat.valueOf(rs.firstDealer);
+                    Seat cur = room.currentDealer == null ? first : room.currentDealer;
+                    int handNo = rs.flowHandNo > 0 ? rs.flowHandNo : Math.max(1, rs.currentHand);
+                    flow = DealerFlow.restore(room.cfg, first, cur,
+                            rs.bottom > 0 ? rs.bottom : room.cfg.basePoint,
+                            rs.windIdx, handNo,
+                            rs.firstDealerBegins > 0 ? rs.firstDealerBegins : 1, rs.handsPlayed);
+                }
+                room.flow = flow;
+                if (room.state == State.PLAYING) {
                     EngineStart seed = new EngineStart();
                     seed.sessionId = rs.sessionId;
-                    seed.startHand = Math.max(1, rs.currentHand);
-                    seed.dealer = room.currentDealer == null ? Seat.EAST : room.currentDealer;
-                    seed.resume = rs.snapshot;
+                    seed.cfg = room.cfg;
+                    seed.flow = flow;
+                    seed.resume = rs.snapshot; // 可空：空则从下一把起继续
                     for (Seat s : Seat.values()) {
                         Integer c = room.coins.get(s);
                         seed.coins.put(s, c == null ? 0 : c);
@@ -901,8 +985,16 @@ public class MultiPlayerRoomService {
             m.put("tile", tile);
             m.put("from", from == null ? null : from.name());
             List<String> fans = new ArrayList<String>();
-            for (FanType f : result.fanTypes) {
-                fans.add(f.toString());
+            if (rm != null) {
+                Player p = rm.getPlayer(seat);
+                if (p != null) {
+                    for (FanType f : HainanScore.fansOfHand(p.hand, p.melds, p.flowers, tile)) {
+                        fans.add(f.toString());
+                    }
+                }
+            }
+            if (fans.isEmpty()) {
+                fans.add("平胡");
             }
             m.put("fans", fans);
             if (selfDraw && rm != null && rm.wasLastDrawKongFlower()) {
@@ -925,6 +1017,16 @@ public class MultiPlayerRoomService {
             m.put("seat", seat == null ? null : seat.name());
             m.put("kind", kind);
             m.put("timeoutMs", timeoutMs);
+            broadcastGame(room, m);
+        }
+
+        @Override public void onReport(Seat seat, int mode) {
+            String name = mode == 1 ? "天听" : (mode == 2 ? "地听" : "报听");
+            logAll(seat.cn + " 报听（" + name + "）");
+            Map<String, Object> m = new HashMap<String, Object>();
+            m.put("type", "report");
+            m.put("seat", seat.name());
+            m.put("mode", mode);
             broadcastGame(room, m);
         }
 
@@ -1040,7 +1142,8 @@ public class MultiPlayerRoomService {
 
     // ==================== 对局持久化 ====================
 
-    private void persistRound(long sessionId, int roundNum, RoundResult r, Room room) throws Exception {
+    private void persistRound(long sessionId, int roundNum, RoundResult r, Room room,
+                              Map<Seat, Integer> delta, Map<Seat, String> detailJsons) throws Exception {
         boolean isDraw = r.isDraw;
         int winType = isDraw ? 2 : (r.selfDraw ? 0 : 1);
         Long winnerId = (isDraw || r.winner == null) ? null : userIdOf(room, r.winner);
@@ -1049,13 +1152,14 @@ public class MultiPlayerRoomService {
 
         String fanInfo = "{}";
         int totalFan = 0;
-        if (r.hu != null && !r.hu.fanTypes.isEmpty()) {
+        if (!isDraw) {
+            java.util.List<FanType> fans = HainanScore.multFans(r);
             Map<String, Integer> fanMap = new HashMap<String, Integer>();
-            for (FanType f : r.hu.fanTypes) {
+            for (FanType f : fans) {
                 fanMap.put(f.name(), 1);
             }
             fanInfo = mapper.writeValueAsString(fanMap);
-            totalFan = r.hu.fanTypes.size();
+            totalFan = fans.size();
         }
 
         String winHandJson = null;
@@ -1077,8 +1181,10 @@ public class MultiPlayerRoomService {
         if (roundId > 0) {
             for (Seat s : Seat.values()) {
                 boolean isWinner = !isDraw && r.winner == s;
-                int change = isWinner ? 1 : -1;
-                mysql.saveRoundScore(roundId, userIdOf(room, s), s.ordinal(), change, isWinner);
+                int change = delta == null ? 0 : delta.get(s);
+                String detail = detailJsons == null ? "[]"
+                        : (detailJsons.get(s) == null ? "[]" : detailJsons.get(s));
+                mysql.saveRoundScore(roundId, userIdOf(room, s), s.ordinal(), change, isWinner, detail);
             }
         }
     }
@@ -1272,8 +1378,69 @@ public class MultiPlayerRoomService {
         return true;
     }
 
-    private static Member memberOf(Room room, long userId) {
-        for (Member m : room.members.values()) {
+    /** 组装每人“本局明细”JSON：{notes, flowers, gangs}，供战绩页图形化渲染。 */
+    private Map<Seat, String> buildDetailJsons(HainanScore.Settlement st,
+                                               Map<Seat, List<Integer>> flMap,
+                                               Map<Seat, List<Meld>> mMap) {
+        Map<Seat, String> out = new EnumMap<Seat, String>(Seat.class);
+        for (Seat s : Seat.values()) {
+            Map<String, Object> obj = new LinkedHashMap<String, Object>();
+            List<String> notes = st.notes.get(s);
+            obj.put("notes", notes == null ? new ArrayList<String>() : notes);
+            List<Integer> fl = flMap == null ? null : flMap.get(s);
+            obj.put("flowers", fl == null ? new ArrayList<Integer>() : fl);
+            List<Map<String, Object>> gangs = new ArrayList<Map<String, Object>>();
+            List<Meld> ms = mMap == null ? null : mMap.get(s);
+            if (ms != null) {
+                for (Meld m : ms) {
+                    if (m.type == Meld.Type.GANG || m.type == Meld.Type.AN_GANG || m.type == Meld.Type.BU_GANG) {
+                        Map<String, Object> gm = new LinkedHashMap<String, Object>();
+                        gm.put("type", m.type.name());
+                        List<Integer> ts = new ArrayList<Integer>();
+                        for (int t : m.tiles) {
+                            ts.add(t);
+                        }
+                        gm.put("tiles", ts);
+                        gangs.add(gm);
+                    }
+                }
+            }
+            obj.put("gangs", gangs);
+            try {
+                out.put(s, mapper.writeValueAsString(obj));
+            } catch (Exception e) {
+                out.put(s, "{}");
+            }
+        }
+        return out;
+    }
+
+    /** 探测“庄首张出牌被谁明杠”（包杠）；无则 null。 */
+    private static Seat dealerFirstGangSeat(Seat dealer, RoomManager rm) {
+        if (dealer == null || rm == null) {
+            return null;
+        }
+        List<Integer> ds = rm.getPlayerDiscards(dealer);
+        if (ds == null || ds.isEmpty()) {
+            return null;
+        }
+        int t0 = ds.get(0);
+        for (Seat s : Seat.values()) {
+            Player p = rm.getPlayer(s);
+            if (p == null) {
+                continue;
+            }
+            for (Meld m : p.melds) {
+                if (m.type == Meld.Type.GANG && m.from == dealer
+                        && m.tiles != null && m.tiles.length > 0 && m.tiles[0] == t0) {
+                    return s;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static Member memberOf(Room room, long userId) {        for (Member m : room.members.values()) {
             if (m.userId == userId) {
                 return m;
             }

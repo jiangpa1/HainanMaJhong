@@ -82,6 +82,7 @@ public class RecordsController {
     private Map<String, Object> buildDetail(long sessionId, long userId) {
         Map<Long, int[]> totals = mysql.sessionPlayerTotals(sessionId);
         List<Map<String, Object>> rawRounds = mysql.sessionRounds(sessionId, userId);
+        List<Map<String, Object>> allRows = mysql.sessionRoundsAll(sessionId);
 
         // 玩家总分明细
         List<Map<String, Object>> players = new ArrayList<Map<String, Object>>();
@@ -95,25 +96,14 @@ public class RecordsController {
             players.add(p);
         }
 
+        // 概览（当前用户视角）
         int winCount = 0;
         int highestFan = 0;
         String highestFanDesc = "";
-        List<Map<String, Object>> rounds = new ArrayList<Map<String, Object>>();
         for (Map<String, Object> r : rawRounds) {
-            int roundNum = ((Number) r.get("roundNum")).intValue();
-            int winType = r.get("winType") == null ? 2 : ((Number) r.get("winType")).intValue();
-            boolean isDraw = toBool(r.get("isDraw"));
             boolean isWinner = toBool(r.get("isWinner"));
-            int scoreChange = r.get("scoreChange") == null ? 0 : ((Number) r.get("scoreChange")).intValue();
-            Integer winTile = r.get("winTile") == null ? null : ((Number) r.get("winTile")).intValue();
             int totalFan = r.get("totalFan") == null ? 0 : ((Number) r.get("totalFan")).intValue();
             List<String> fanTypes = parseFanTypes((String) r.get("fanInfo"));
-            Long winnerId = r.get("winnerId") == null ? null : ((Number) r.get("winnerId")).longValue();
-            String winner = winnerId == null ? null : nickname(winnerId);
-            Long loserId = r.get("loserId") == null ? null : ((Number) r.get("loserId")).longValue();
-            boolean isLoser = loserId != null && loserId == userId;
-            Map<String, Object> winHandObj = parseWinHand((String) r.get("winHand"));
-
             if (isWinner) {
                 winCount++;
                 if (totalFan > highestFan) {
@@ -121,19 +111,55 @@ public class RecordsController {
                     highestFanDesc = fanTypes.isEmpty() ? "平胡" : String.join("、", fanTypes);
                 }
             }
+        }
+
+        // 按局分组：每局 = 全局四家（含各自杠/花明细）
+        Map<Integer, List<Map<String, Object>>> byRound = new java.util.TreeMap<Integer, List<Map<String, Object>>>();
+        for (Map<String, Object> row : allRows) {
+            int n = ((Number) row.get("roundNum")).intValue();
+            List<Map<String, Object>> list = byRound.get(n);
+            if (list == null) {
+                list = new ArrayList<Map<String, Object>>();
+                byRound.put(n, list);
+            }
+            list.add(row);
+        }
+
+        List<Map<String, Object>> rounds = new ArrayList<Map<String, Object>>();
+        for (Map.Entry<Integer, List<Map<String, Object>>> e : byRound.entrySet()) {
+            List<Map<String, Object>> rows = e.getValue();
+            Map<String, Object> first = rows.get(0);
+            List<String> fanTypes = parseFanTypes((String) first.get("fanInfo"));
+            Map<String, Object> winHandObj = parseWinHand((String) first.get("winHand"));
+            Long winnerId = first.get("winnerId") == null ? null : ((Number) first.get("winnerId")).longValue();
+            Long loserId = first.get("loserId") == null ? null : ((Number) first.get("loserId")).longValue();
+
+            List<Map<String, Object>> participants = new ArrayList<Map<String, Object>>();
+            for (Map<String, Object> row : rows) {
+                Long pid = ((Number) row.get("userId")).longValue();
+                Map<String, Object> pp = new HashMap<String, Object>();
+                pp.put("userId", pid);
+                pp.put("nickname", nickname(pid));
+                pp.put("seat", ((Number) row.get("seat")).intValue());
+                pp.put("scoreChange", row.get("scoreChange") == null ? 0 : ((Number) row.get("scoreChange")).intValue());
+                pp.put("isWinner", toBool(row.get("isWinner")));
+                pp.put("isMe", pid == userId);
+                pp.put("detail", parseDetailObj((String) row.get("detail")));
+                participants.add(pp);
+            }
 
             Map<String, Object> round = new HashMap<String, Object>();
-            round.put("roundNum", roundNum);
-            round.put("winType", winType);
-            round.put("isDraw", isDraw);
-            round.put("isWinner", isWinner);
-            round.put("isLoser", isLoser);
-            round.put("scoreChange", scoreChange);
-            round.put("winTile", winTile);
+            round.put("roundNum", e.getKey());
+            round.put("isDraw", toBool(first.get("isDraw")));
+            round.put("winType", first.get("winType") == null ? 2 : ((Number) first.get("winType")).intValue());
+            round.put("winnerId", winnerId);
+            round.put("winner", winnerId == null ? null : nickname(winnerId));
+            round.put("loserId", loserId);
+            round.put("winTile", first.get("winTile") == null ? null : ((Number) first.get("winTile")).intValue());
             round.put("fanTypes", fanTypes);
-            round.put("winner", winner);
             round.put("winHand", winHandObj.get("hand"));
             round.put("winMelds", winHandObj.get("melds"));
+            round.put("participants", participants);
             rounds.add(round);
         }
 
@@ -147,6 +173,40 @@ public class RecordsController {
         resp.put("overview", overview);
         resp.put("rounds", rounds);
         return resp;
+    }
+
+    /** 解析每局 detail JSON：新版对象 {notes,flowers,gangs}；旧版字符串数组则并入 notes。 */
+    private Map<String, Object> parseDetailObj(String json) {
+        Map<String, Object> out = new HashMap<String, Object>();
+        out.put("notes", new ArrayList<Object>());
+        out.put("flowers", new ArrayList<Object>());
+        out.put("gangs", new ArrayList<Object>());
+        if (json == null || json.trim().isEmpty()) {
+            return out;
+        }
+        String s = json.trim();
+        try {
+            if (s.startsWith("[")) {
+                @SuppressWarnings("unchecked")
+                List<Object> arr = mapper.readValue(s, List.class);
+                out.put("notes", arr);
+            } else {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> obj = mapper.readValue(s, Map.class);
+                if (obj.get("notes") != null) {
+                    out.put("notes", obj.get("notes"));
+                }
+                if (obj.get("flowers") != null) {
+                    out.put("flowers", obj.get("flowers"));
+                }
+                if (obj.get("gangs") != null) {
+                    out.put("gangs", obj.get("gangs"));
+                }
+            }
+        } catch (Exception e) {
+            // 忽略解析失败
+        }
+        return out;
     }
 
     private Map<String, Object> emptyOverview() {
