@@ -320,15 +320,31 @@ public class MultiPlayerRoomService {
         }
     }
 
-    /** 对局中任何人（含房主）离开/刷新：不断房，机器人托管该座，房间/座位保留以便“返回房间”。 */
+    /**
+     * 对局中任何人（含房主）离开/刷新：若还有真人在线则机器人托管该座、房间/座位保留以便“返回房间”；
+     * 若四人全部离开（无任何真人在线）则直接解散房间，不再让 4 个机器人空跑。
+     */
     private void handleMemberLeft(Room room, Member m) {
         if (room.state == State.PLAYING) {
             m.offline = true;
             m.controller.setDelegate(new BotController());
             log.info("房间 {} 座位 {} 玩家 {} 中途离开，机器人托管(可返回)", room.code, m.seat, m.userId);
+            if (noHumanBound(room)) {
+                disband(room, "所有玩家已退出，房间解散");
+            }
             return;
         }
         disband(room, "有成员离开，房间解散");
+    }
+
+    /** 是否已没有任何真人在线（四人全离线/未连入）。 */
+    private boolean noHumanBound(Room room) {
+        for (Member mm : room.members.values()) {
+            if (mm != null && !mm.offline && bound(mm)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private void bindGameSeat(String code, Seat seat, long userId, WebSocketSession session) {
@@ -608,6 +624,11 @@ public class MultiPlayerRoomService {
                 m.controller.setDelegate(new BotController());
                 log.info("房间 {} 座位 {} 玩家未连入，机器人托管本块", room.code, s);
             }
+        }
+        // 四人（含房主）都没连入/已离开 → 房间直接解散，不开 4 机器人空跑
+        if (noHumanBound(room)) {
+            disband(room, "无人进入牌局，房间解散");
+            return;
         }
         runEngine(room, new EngineStart());
     }
