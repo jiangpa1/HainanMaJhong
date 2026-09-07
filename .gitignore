@@ -1,0 +1,23 @@
+# ---- 构建产物 / 运行时 ----
+target/
+out/
+*.log
+*.class
+
+# ---- 文档与临时 ----
+*.docx
+~$*
+
+# ---- 本地/环境配置 ----
+.claude/settings.local.json
+.env
+*.local
+
+# ---- IDE / 编辑器 ----
+.idea/
+*.iml
+.vscode/
+
+# ---- 系统 ----
+.DS_Store
+Thumbs.db
