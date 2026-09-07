@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>海南麻将 · 房间</title>
-<link rel="stylesheet" href="landscape.css?v=20260907g">
+<link rel="stylesheet" href="landscape.css?v=20260907k">
 <style>
   :root {
     --gold: #d4af37;
@@ -151,7 +151,7 @@
   <div class="status" id="status">连接中…</div>
 
   <div class="btn-row2">
-    <button class="btn-act btn-rematch" id="rematch-btn">开始下一轮(16局)</button>
+    <button class="btn-act btn-rematch" id="rematch-btn">开始下一轮（打满四风）</button>
     <button class="btn-act btn-leave" id="leave-btn">离开房间</button>
   </div>
 </main>
@@ -204,7 +204,9 @@ const ws = new WebSocket(wsProto + '://' + location.host + '/room?userId=' + use
 ws.onopen = () => {
   statusEl.textContent = '已连接';
   if (action === 'create') {
-    ws.send(JSON.stringify({ type: 'createRoom' }));
+    let cfg = null;
+    try { cfg = JSON.parse(localStorage.getItem('hnRoomConfig') || 'null'); } catch (e) { cfg = null; }
+    ws.send(JSON.stringify({ type: 'createRoom', config: (cfg && typeof cfg === 'object') ? cfg : {} }));
   } else if (wantCode) {
     ws.send(JSON.stringify({ type: 'joinRoom', code: wantCode }));
   } else {
@@ -271,6 +273,6 @@ function render(info){
 
 function esc(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 </script>
-<script src="landscape.js?v=20260907g"></script>
+<script src="landscape.js?v=20260907k"></script>
 </body>
 </html>

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>海南麻将 · 大厅</title>
-<link rel="stylesheet" href="landscape.css?v=20260907g">
+<link rel="stylesheet" href="landscape.css?v=20260907k">
 <style>
   :root {
     --gold: #d4af37;
@@ -263,6 +263,66 @@
   }
   .setting-back:hover { color: var(--ink); }
 
+  /* ===== 创建房间：规则可设项弹窗 ===== */
+  .create-overlay {
+    position: fixed; inset: 0; z-index: 1100;
+    background: rgba(0,0,0,.55);
+    backdrop-filter: blur(5px);
+    display: none; align-items: center; justify-content: center;
+    padding: 16px;
+  }
+  .create-overlay.open { display: flex; }
+  .create-dialog {
+    width: min(560px, 96vw);
+    max-height: 88vh;
+    display: flex; flex-direction: column;
+    background:
+      repeating-linear-gradient(135deg, rgba(255,255,255,.015) 0 2px, rgba(0,0,0,0) 2px 7px),
+      linear-gradient(180deg, rgba(30,70,55,.98), rgba(12,38,28,.99));
+    border: 1px solid rgba(212,175,55,.6);
+    border-radius: 16px;
+    box-shadow: 0 22px 54px rgba(0,0,0,.6);
+    transform: scale(.7); opacity: 0;
+    transition: transform .22s cubic-bezier(.34,1.56,.64,1), opacity .18s;
+  }
+  .create-overlay.open .create-dialog { transform: scale(1); opacity: 1; }
+  .create-title {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 18px; font-size: 18px; font-weight: 900; color: var(--ink);
+    border-bottom: 1px solid rgba(212,175,55,.3);
+    letter-spacing: 2px;
+  }
+  .create-body { padding: 12px 18px 4px; overflow-y: auto; }
+  .cfg-group { font-size: 14px; font-weight: bold; color: #f0d27a; margin: 12px 0 6px; letter-spacing: 1px; }
+  .cfg-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 6px 2px; font-size: 14px; color: var(--ink);
+  }
+  .cfg-row .lab { opacity: .9; }
+  .cfg-row .tip { opacity: .55; font-size: 11px; }
+  .cfg-input {
+    width: 92px; text-align: right;
+    background: rgba(0,0,0,.34); border: 1px solid rgba(255,255,255,.14);
+    border-radius: 8px; padding: 7px 10px; font-size: 15px; color: #fff; outline: none;
+  }
+  .cfg-input:focus { border-color: var(--gold-light); }
+  .create-foot {
+    padding: 12px 18px 16px; display: flex; gap: 12px;
+  }
+  .create-btn {
+    flex: 1; border: none; border-radius: 12px; padding: 13px;
+    font-size: 16px; font-weight: 900; color: #fff; cursor: pointer;
+  }
+  .create-btn.go {
+    background: linear-gradient(180deg, #46d17e, #1b7d45);
+    box-shadow: 0 4px 0 #145c32;
+  }
+  .create-btn.ghost {
+    flex: 0 0 auto; background: rgba(255,255,255,.1); box-shadow: none;
+  }
+  .create-btn.go:active { transform: translateY(2px); box-shadow: 0 1px 0 #145c32; }
+
+
   /* ===== 响应式 ===== */
   @media (max-width: 640px) {
     .logo { font-size: 38px; letter-spacing: 4px; }
@@ -305,6 +365,18 @@
   <div class="settings-dialog">
     <div class="settings-title">设置 <button class="settings-close" id="settings-close">×</button></div>
     <div class="settings-body" id="settings-body"></div>
+  </div>
+</div>
+
+<!-- 创建房间：规则可设项弹窗 -->
+<div class="create-overlay" id="create-overlay">
+  <div class="create-dialog">
+    <div class="create-title">房间规则设置 <button class="settings-close" id="create-close">×</button></div>
+    <div class="create-body" id="cfg-body"></div>
+    <div class="create-foot">
+      <button class="create-btn ghost" id="cfg-reset">恢复默认</button>
+      <button class="create-btn go" id="cfg-confirm">创建房间</button>
+    </div>
   </div>
 </div>
 
@@ -438,9 +510,79 @@ function goReturnRoom(){
   }
 }
 
-function createRoom(){
+const HN_CFG_KEY = 'hnRoomConfig';
+const HN_DEF = {
+  basePoint:1,
+  flowerTrue:1, flowerFake:0, pairTrueFlower:0, pairFakeFlower:0,
+  multPing:1, multPeng:3, multHun:2, multQing:4,
+  multQiDui:3, multLongQi:5, multShiSanYao:13,
+  multTianHu:5, multTianTing:4, multDiTing:2
+};
+const HN_GROUPS = [
+  { g:'底分', rows:[['basePoint','底分','连庄时会 +1，非庄胡下庄后重置']] },
+  { g:'花杠分（每局结算的额外花分）', rows:[
+      ['flowerTrue','真花（春夏秋冬 或 梅兰竹菊一套）'],
+      ['flowerFake','假花（数字 1~4 凑齐）'],
+      ['pairTrueFlower','真对花（抓到本人两个位置花）'],
+      ['pairFakeFlower','假对花（同号一对但非本人位置）'] ] },
+  { g:'番型倍数（命中多个番型时相加）', rows:[
+      ['multPing','平胡'],['multPeng','碰碰胡'],['multHun','混一色'],['multQing','清一色'],
+      ['multQiDui','七对'],['multLongQi','龙七对'],['multShiSanYao','十三幺'],
+      ['multTianHu','天胡'],['multTianTing','天听'],['multDiTing','地听'] ] }
+];
+function createRoomCfg(){
+  const saved = localStorage.getItem(HN_CFG_KEY);
+  try { const j = JSON.parse(saved); if (j && typeof j === 'object') return j; } catch (e) {}
+  return Object.assign({}, HN_DEF);
+}
+function renderCreateDialog(cfg){
+  const html = HN_GROUPS.map(grp => {
+    const rows = grp.rows.map(r => {
+      const key = r[0];
+      const v = cfg[key];
+      return `<div class="cfg-row"><span class="lab">${r[1]}</span>`
+        + `<input class="cfg-input" id="cfg_${key}" type="number" min="0" value="${v == null ? 0 : v}"></div>`;
+    }).join('');
+    return `<div class="cfg-group">${grp.g}</div>${rows}`;
+  }).join('');
+  document.getElementById('cfg-body').innerHTML = html;
+}
+function collectCreateCfg(){
+  const out = {};
+  Object.keys(HN_DEF).forEach(k => {
+    const el = document.getElementById('cfg_' + k);
+    let v = el ? parseInt(el.value, 10) : HN_DEF[k];
+    if (!isFinite(v) || v < 0) v = 0;
+    out[k] = v;
+  });
+  out.enabled = true;
+  return out;
+}
+function openCreateDialog(){
   if (!requireLogin()) return;
+  renderCreateDialog(createRoomCfg());
+  document.getElementById('create-overlay').classList.add('open');
+}
+function closeCreateDialog(){
+  document.getElementById('create-overlay').classList.remove('open');
+}
+function confirmCreateRoom(){
+  const cfg = collectCreateCfg();
+  localStorage.setItem(HN_CFG_KEY, JSON.stringify(cfg));
+  closeCreateDialog();
   location.href = 'room.html?action=create';
+}
+document.getElementById('create-close').addEventListener('click', closeCreateDialog);
+document.getElementById('cfg-confirm').addEventListener('click', confirmCreateRoom);
+document.getElementById('cfg-reset').addEventListener('click', () => {
+  renderCreateDialog(Object.assign({}, HN_DEF));
+});
+document.getElementById('create-overlay').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('create-overlay')) closeCreateDialog();
+});
+
+function createRoom(){
+  openCreateDialog();
 }
 
 function joinRoomPrompt(){
@@ -468,6 +610,6 @@ document.getElementById('return-room').addEventListener('click', goReturnRoom);
 refreshReturn();
 setInterval(refreshReturn, 8000);
 </script>
-<script src="landscape.js?v=20260907g"></script>
+<script src="landscape.js?v=20260907k"></script>
 </body>
 </html>
