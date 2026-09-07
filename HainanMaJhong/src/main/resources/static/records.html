@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>海南麻将 · 战绩</title>
-<link rel="stylesheet" href="landscape.css?v=20260907g">
+<link rel="stylesheet" href="landscape.css?v=20260907k">
 <style>
   :root {
     --gold: #f7d774;
@@ -30,7 +30,7 @@
     background:
       radial-gradient(900px 500px at 50% 0%, rgba(52,122,82,.32), rgba(52,122,82,0) 60%),
       linear-gradient(180deg, var(--green) 0%, var(--green-dark) 100%);
-    /* 移动端 landscape.js?v=20260907g 会把页面搬进 #game-app，这里恢复 flex 纵向排列，
+    /* 移动端 landscape.js?v=20260907k 会把页面搬进 #game-app，这里恢复 flex 纵向排列，
        否则 #list 的 flex:1 + overflow 没有可滚动的父级 */
     display: flex;
     flex-direction: column;
@@ -235,6 +235,15 @@
     .card .pnl { flex: 0 0 86px; font-size: 24px; }
   }
 </style>
+<style>
+  .round-list .round-card { align-items: stretch; }
+  .round-list .rc-tile { width: 22px; height: 29px; object-fit: cover; border-radius: 3px; vertical-align: middle; }
+  .round-list .rc-meld { display: inline-flex; align-items: center; gap: 1px; margin-right: 4px; font-size: 11px; color: #e8d5a0; }
+  .round-list .rc-pl { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; font-size: 12px; opacity: .95; }
+  .round-list .rc-pl.hu { opacity: 1; font-weight: bold; }
+  .round-list .rc-pl .rc-fan { color: #e8d5a0; }
+  .round-list .rc-pl .rc-hand { display: inline-flex; flex-wrap: wrap; gap: 1px; align-items: center; }
+</style>
 </head>
 <body>
 <header>
@@ -269,6 +278,19 @@ function cardName(i){
 }
 const SEAT = ['东','南','西','北'];
 const MELD_LABEL = {CHI:'吃', PENG:'碰', GANG:'杠', AN_GANG:'暗杠', BU_GANG:'补杠'};
+function esc(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function tImg(t){ return `<img class="rc-tile" src="img/tiles/${t}.png" title="${cardName(t)}">`; }
+function meldHtml2(m){ return `<span class="rc-meld">${MELD_LABEL[m.type] || m.type}${(m.tiles || []).map(tImg).join('')}</span>`; }
+function gangHtmlOf(d){
+  return (d.gangs || []).map(g => `<span class="rc-meld">${MELD_LABEL[g.type] || g.type}${(g.tiles || []).map(tImg).join('')}</span>`).join('');
+}
+function flowerHtmlOf(d){
+  return (d.flowers || []).map(f => tImg(f)).join('');
+}
+function rcScoreHtml(sc){
+  const cls = sc > 0 ? 'win' : (sc < 0 ? 'lose' : 'zero');
+  return `<span class="rc-score ${cls}">${sc > 0 ? '+' : ''}${sc}</span>`;
+}
 
 const userId = localStorage.getItem('userId') || '0';
 const urlRoomId = new URLSearchParams(location.search).get('roomId');
@@ -364,29 +386,35 @@ function renderDetail(data){
   const rounds = data.rounds || [];
   let cards = '';
   rounds.forEach(r => {
-    let badge = '', badgeCls = '';
-    if (r.isWinner && r.winType === 0) { badge = '自摸'; badgeCls = 'hu'; }
-    else if (r.isWinner) { badge = '胡'; badgeCls = 'hu'; }
-    else if (r.isLoser) { badge = '炮'; badgeCls = 'pao'; }
-
-    const winTile = (r.winTile != null && r.winTile >= 0)
-      ? `<img class="rc-tile" src="img/tiles/${r.winTile}.png" title="${cardName(r.winTile)}">` : '';
-    const tiles = (r.winHand && r.winHand.length)
-      ? r.winHand.map(t => `<img class="rc-tile" src="img/tiles/${t}.png" title="${cardName(t)}">`).join('') : '';
-    const melds = (r.winMelds && r.winMelds.length)
-      ? r.winMelds.map(m => `<span class="rc-meld">${MELD_LABEL[m.type] || m.type}${(m.tiles || []).map(t => `<img class="rc-tile" src="img/tiles/${t}.png">`).join('')}</span>`).join('') : '';
-    const fans = (r.fanTypes && r.fanTypes.length) ? r.fanTypes.join('、') : '平胡';
-    const scCls = r.scoreChange > 0 ? 'win' : (r.scoreChange < 0 ? 'lose' : 'zero');
-    const sc = r.scoreChange > 0 ? `+${r.scoreChange}` : r.scoreChange;
-
+    if (r.isDraw) {
+      cards += `<div class="round-card"><span class="rc-num">${r.roundNum}</span><span class="rc-winner">荒庄</span></div>`;
+      return;
+    }
+    const ps = r.participants || [];
+    const row = (p, kind) => {
+      const d = p.detail || {};
+      const notes = (d.notes || []).join('、');
+      const sc = p.scoreChange || 0;
+      const you = p.isMe ? '（我）' : '';
+      let tiles = '';
+      if (kind === 'hu') {
+        tiles += (r.winHand || []).map(tImg).join('');
+        tiles += (r.winMelds || []).map(meldHtml2).join('');
+      }
+      tiles += gangHtmlOf(d) + flowerHtmlOf(d);
+      return `<div class="rc-pl ${kind}"><b>${kind === 'hu' ? '胡·' : ''}${esc(p.nickname || '')}${you}</b>`
+        + (notes ? ` <span class="rc-fan">${esc(notes)}</span>` : '')
+        + (tiles ? ` <span class="rc-hand">${tiles}</span>` : '')
+        + rcScoreHtml(sc) + `</div>`;
+    };
+    const lines = [];
+    ps.filter(p => p.isWinner).forEach(p => lines.push(row(p, 'hu')));
+    ps.filter(p => !p.isWinner
+        && (((p.detail || {}).gangs || []).length || ((p.detail || {}).flowers || []).length || ((p.detail || {}).notes || []).length))
+      .forEach(p => lines.push(row(p, '')));
     cards += `<div class="round-card">
       <span class="rc-num">${r.roundNum}</span>
-      ${badge ? `<span class="rc-badge ${badgeCls}">${badge}</span>` : ''}
-      <span class="rc-winner">${r.winner || '—'}</span>
-      ${winTile ? `<span class="rc-win-tile">${winTile}</span>` : ''}
-      <div class="rc-hand"><span class="rc-tiles">${tiles}${melds}</span></div>
-      <span class="rc-fan">${fans}</span>
-      <span class="rc-score ${scCls}">${sc}</span>
+      <div class="rc-ppl" style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:150px">${lines.join('')}</div>
     </div>`;
   });
   roundsEl.innerHTML = `<div class="round-list">${cards}</div>`;
@@ -411,6 +439,6 @@ if (urlRoomId) {
   loadList();
 }
 </script>
-<script src="landscape.js?v=20260907g"></script>
+<script src="landscape.js?v=20260907k"></script>
 </body>
 </html>
