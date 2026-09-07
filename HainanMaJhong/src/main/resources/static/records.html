@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>海南麻将 · 战绩</title>
-<link rel="stylesheet" href="landscape.css?v=20260907k">
+<link rel="stylesheet" href="landscape.css?v=20260907l">
 <style>
   :root {
     --gold: #f7d774;
@@ -30,7 +30,7 @@
     background:
       radial-gradient(900px 500px at 50% 0%, rgba(52,122,82,.32), rgba(52,122,82,0) 60%),
       linear-gradient(180deg, var(--green) 0%, var(--green-dark) 100%);
-    /* 移动端 landscape.js?v=20260907k 会把页面搬进 #game-app，这里恢复 flex 纵向排列，
+    /* 移动端 landscape.js?v=20260907l 会把页面搬进 #game-app，这里恢复 flex 纵向排列，
        否则 #list 的 flex:1 + overflow 没有可滚动的父级 */
     display: flex;
     flex-direction: column;
@@ -287,6 +287,10 @@ function gangHtmlOf(d){
 function flowerHtmlOf(d){
   return (d.flowers || []).map(f => tImg(f)).join('');
 }
+function flowerShown(d){
+  // 只有凑成“花杠”(真花/假花/真对花/假对花) 才展示花牌图
+  return ((d.notes || []).some(n => /花/.test(n)));
+}
 function rcScoreHtml(sc){
   const cls = sc > 0 ? 'win' : (sc < 0 ? 'lose' : 'zero');
   return `<span class="rc-score ${cls}">${sc > 0 ? '+' : ''}${sc}</span>`;
@@ -398,10 +402,13 @@ function renderDetail(data){
       const you = p.isMe ? '（我）' : '';
       let tiles = '';
       if (kind === 'hu') {
+        // 胡牌者：手牌 + 副露（含杠牌，不重复展示 detail.gangs）
         tiles += (r.winHand || []).map(tImg).join('');
         tiles += (r.winMelds || []).map(meldHtml2).join('');
+      } else {
+        tiles += gangHtmlOf(d);
       }
-      tiles += gangHtmlOf(d) + flowerHtmlOf(d);
+      if (flowerShown(d)) tiles += flowerHtmlOf(d);   // 只有凑成花杠才显示花
       return `<div class="rc-pl ${kind}"><b>${kind === 'hu' ? '胡·' : ''}${esc(p.nickname || '')}${you}</b>`
         + (notes ? ` <span class="rc-fan">${esc(notes)}</span>` : '')
         + (tiles ? ` <span class="rc-hand">${tiles}</span>` : '')
@@ -410,7 +417,7 @@ function renderDetail(data){
     const lines = [];
     ps.filter(p => p.isWinner).forEach(p => lines.push(row(p, 'hu')));
     ps.filter(p => !p.isWinner
-        && (((p.detail || {}).gangs || []).length || ((p.detail || {}).flowers || []).length || ((p.detail || {}).notes || []).length))
+        && (((p.detail || {}).gangs || []).length || ((p.detail || {}).notes || []).length))
       .forEach(p => lines.push(row(p, '')));
     cards += `<div class="round-card">
       <span class="rc-num">${r.roundNum}</span>
@@ -439,6 +446,6 @@ if (urlRoomId) {
   loadList();
 }
 </script>
-<script src="landscape.js?v=20260907k"></script>
+<script src="landscape.js?v=20260907l"></script>
 </body>
 </html>

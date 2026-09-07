@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>海南麻将 · 人机对战</title>
-<link rel="stylesheet" href="landscape.css?v=20260907k">
+<link rel="stylesheet" href="landscape.css?v=20260907l">
 <style>
   :root {
     --gold: #f7d774;
@@ -35,7 +35,7 @@
   }
 
   /* ============================================================
-     核心内容层：.scale-layer（1280×720 设计分辨率，由 landscape.js?v=20260907k 缩放居中）
+     核心内容层：.scale-layer（1280×720 设计分辨率，由 landscape.js?v=20260907l 缩放居中）
      内部元素全部用 absolute 定位，按设计分辨率坐标摆放。
      ============================================================ */
   .scale-layer { overflow: hidden; }
@@ -718,6 +718,7 @@ const state = {
   timer: null,
   ended: false,
   drawnTile: -1,
+  wall: -1,   // 牌墙剩余
   report: {},  // 座位(本地) -> 报听模式：1 天听 / 2 地听
 };
 
@@ -821,6 +822,7 @@ function handle(raw){
       break;
     case 'counts':
       state.counts = msg.counts;
+      if (msg.wall != null) { state.wall = msg.wall; updateHandIndicator(); }
       renderOpponents();
       break;
     case 'turn':
@@ -964,6 +966,7 @@ function handLabel(){
   if (wn) s += wn + '风令';
   if (state.handNo) s += (s ? ' · ' : '') + '第 ' + state.handNo + ' 把';
   if (state.bottom != null) s += ' · 底分 ' + state.bottom;
+  if (state.wall >= 0) s += ' · 墙 ' + state.wall;
   return s || '牌局';
 }
 function updateHandIndicator(){
@@ -1236,6 +1239,7 @@ function tImg(t){ return `<img class="rc-tile" style="width:22px;height:29px;obj
 function meldHtml2(m){ return `<span class="rc-meld" style="display:inline-flex;align-items:center;gap:1px;margin-right:4px;font-size:11px;color:#e8d5a0">${MELD_NAME[m.type] || m.type}${(m.tiles || []).map(tImg).join('')}</span>`; }
 function gangHtmlOf(d){ return (d.gangs || []).map(g => meldHtml2({type:g.type, tiles:g.tiles})).join(''); }
 function flowerHtmlOf(d){ return (d.flowers || []).map(f => tImg(f)).join(''); }
+function flowerShown(d){ return ((d.notes || []).some(n => /花/.test(n))); }
 function rcScoreHtml(sc){ const cls = sc > 0 ? 'win' : (sc < 0 ? 'lose' : 'zero'); return `<span class="rc-score ${cls}">${sc > 0 ? '+' : ''}${sc}</span>`; }
 
 // 胡牌大字：全员可见，并按胡的那家方位显示（先 1 秒“自摸/杠开/点炮”，再 1 秒番型）
@@ -1420,8 +1424,10 @@ function renderRecordsDetail(data){
       if (kind === 'hu') {
         tiles += (r.winHand || []).map(tImg).join('');
         tiles += (r.winMelds || []).map(meldHtml2).join('');
+      } else {
+        tiles += gangHtmlOf(d);
       }
-      tiles += gangHtmlOf(d) + flowerHtmlOf(d);
+      if (flowerShown(d)) tiles += flowerHtmlOf(d);
       return `<div class="rc-pl ${kind}" style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;font-size:12px"><b>${kind === 'hu' ? '胡·' : ''}${esc(p.nickname || '')}${you}</b>`
         + (notes ? ` <span style="color:#e8d5a0">${esc(notes)}</span>` : '')
         + (tiles ? ` <span style="display:inline-flex;flex-wrap:wrap;gap:1px">${tiles}</span>` : '')
@@ -1430,7 +1436,7 @@ function renderRecordsDetail(data){
     const lines = [];
     ps.filter(p => p.isWinner).forEach(p => lines.push(row(p, 'hu')));
     ps.filter(p => !p.isWinner
-        && (((p.detail || {}).gangs || []).length || ((p.detail || {}).flowers || []).length || ((p.detail || {}).notes || []).length))
+        && (((p.detail || {}).gangs || []).length || ((p.detail || {}).notes || []).length))
       .forEach(p => lines.push(row(p, '')));
     cards += `<div class="round-card" style="display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap">
       <span class="rc-num">${r.roundNum}</span>
@@ -1450,6 +1456,6 @@ document.getElementById('records-overlay').addEventListener('click', (e) => {
 
 connect();
 </script>
-<script src="landscape.js?v=20260907k"></script>
+<script src="landscape.js?v=20260907l"></script>
 </body>
 </html>

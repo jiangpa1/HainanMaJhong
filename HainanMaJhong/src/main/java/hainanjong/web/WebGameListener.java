@@ -199,6 +199,7 @@ public class WebGameListener implements GameListener {
         Map<String, Object> m = new HashMap<String, Object>();
         m.put("type", "counts");
         m.put("counts", counts);
+        m.put("wall", room.deckSize());
         sender.send(m);
     }
 
