@@ -8,6 +8,7 @@ import hainanjong.game.Player;
 import hainanjong.game.RoomManager;
 import hainanjong.game.RoundResult;
 import hainanjong.game.Seat;
+import hainanjong.rules.HainanScore;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -113,8 +114,14 @@ public class WebGameListener implements GameListener {
         m.put("tile", tile);
         m.put("from", from == null ? null : from.name());
         List<String> fans = new ArrayList<String>();
-        for (FanType f : result.fanTypes) {
-            fans.add(f.toString());
+        Player p = room == null ? null : room.getPlayer(seat);
+        if (p != null) {
+            for (FanType f : HainanScore.fansOfHand(p.hand, p.melds, p.flowers, tile)) {
+                fans.add(f.toString());
+            }
+        }
+        if (fans.isEmpty()) {
+            fans.add("平胡");
         }
         m.put("fans", fans);
         if (selfDraw && room != null && room.wasLastDrawKongFlower()) {
@@ -126,6 +133,17 @@ public class WebGameListener implements GameListener {
     @Override
     public void onTimeout(Seat seat, String action) {
         log(seat.cn + " " + action + " 超时，已自动处理");
+    }
+
+    @Override
+    public void onReport(Seat seat, int mode) {
+        String name = mode == 1 ? "天听" : (mode == 2 ? "地听" : "报听");
+        log(seat.cn + " 报听（" + name + "）");
+        Map<String, Object> m = new HashMap<String, Object>();
+        m.put("type", "report");
+        m.put("seat", seat.name());
+        m.put("mode", mode);
+        sender.send(m);
     }
 
     @Override

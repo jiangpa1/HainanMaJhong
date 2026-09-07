@@ -6,10 +6,14 @@ import hainanjong.game.BotController;
 import hainanjong.game.GameConfig;
 import hainanjong.game.GameSnapshot;
 import hainanjong.game.Meld;
+import hainanjong.game.Player;
 import hainanjong.game.PlayerController;
 import hainanjong.game.RoomManager;
 import hainanjong.game.RoundResult;
 import hainanjong.game.Seat;
+import hainanjong.rules.DealerFlow;
+import hainanjong.rules.HainanConfig;
+import hainanjong.rules.HainanScore;
 import hainanjong.service.MysqlService;
 import hainanjong.service.RedisService;
 import org.slf4j.Logger;
@@ -86,6 +90,13 @@ public class WebSocketGameService {
         public Map<String, Integer> coins = new LinkedHashMap<String, Integer>();
         public String dealer;
         public GameSnapshot snapshot; // 进行中某把的完整快照；两把之间为 null
+        public HainanConfig cfg;       // 可空
+        public String firstDealer;
+        public int bottom;
+        public int windIdx;
+        public int flowHand;
+        public int firstDealerBegins;
+        public int handsPlayed;
     }
 
     /** Redis 中存储的房间状态：版本号 + 数据。 */
@@ -164,7 +175,7 @@ public class WebSocketGameService {
 
         Map<String, Object> match = new HashMap<String, Object>();
         match.put("type", "match");
-        match.put("total", MATCH_HANDS);
+        match.put("total", -1); // 单人快速开始也打满四风
         send(session, lock, match);
 
         Thread t = new Thread(new Runnable() {
@@ -174,22 +185,27 @@ public class WebSocketGameService {
                 MatchState saved = loaded == null ? null : loaded.data;
                 AtomicLong version = new AtomicLong(loaded == null ? 0L : loaded.version);
                 long sessionId;
-                int startRound;
                 Map<Seat, Integer> coins = new EnumMap<Seat, Integer>(Seat.class);
-                Seat dealer;
                 GameSnapshot resumeSnapshot = null;
+                HainanConfig cfg;
+                DealerFlow flow;
 
-                if (saved != null && saved.sessionId > 0
-                        && saved.currentRound >= 1 && saved.currentRound <= MATCH_HANDS) {
+                if (saved != null && saved.sessionId > 0 && saved.firstDealer != null) {
                     sessionId = saved.sessionId;
-                    startRound = saved.currentRound;
-                    dealer = seatOf(saved.dealer);
+                    cfg = saved.cfg != null ? saved.cfg : HainanConfig.defaultConfig();
+                    Seat first = Seat.valueOf(saved.firstDealer);
+                    flow = DealerFlow.restore(cfg, first, seatOf(saved.dealer),
+                            saved.bottom > 0 ? saved.bottom : cfg.basePoint,
+                            saved.windIdx,
+                            saved.flowHand > 0 ? saved.flowHand : Math.max(1, saved.currentRound),
+                            saved.firstDealerBegins > 0 ? saved.firstDealerBegins : 1,
+                            saved.handsPlayed);
                     for (Seat s : Seat.values()) {
                         Integer c = saved.coins == null ? null : saved.coins.get(s.name());
                         coins.put(s, c == null ? 0 : c);
                     }
                     resumeSnapshot = saved.snapshot;
-                    log.info("恢复对局 room={}，session={}，从第 {} 把继续{}", roomId, sessionId, startRound,
+                    log.info("恢复对局 room={}，session={}，从第 {} 把继续{}", roomId, sessionId, flow.handNo,
                             resumeSnapshot != null ? "（含中途快照）" : "");
                 } else {
                     sessionId = -1L;
@@ -202,8 +218,8 @@ public class WebSocketGameService {
                     } catch (Exception e) {
                         log.warn("创建 game_sessions 失败：{}", e.getMessage());
                     }
-                    startRound = 1;
-                    dealer = Seat.EAST;
+                    cfg = HainanConfig.defaultConfig();
+                    flow = new DealerFlow(cfg, Seat.values()[(int) (Math.random() * 4)]);
                     for (Seat s : Seat.values()) {
                         coins.put(s, 0);
                     }
@@ -211,31 +227,31 @@ public class WebSocketGameService {
 
                 boolean completed = false;
                 try {
-                    for (int hand = startRound; hand <= MATCH_HANDS; hand++) {
-                        if (!session.isOpen() || game.quit || game.superseded) {
-                            break;
-                        }
+                    while (!flow.finished && !game.quit && !game.superseded && session.isOpen()) {
+                        int hand = flow.handNo;
+                        Seat dealer = flow.dealer;
                         human.reset();
 
                         Map<String, Object> hs = new HashMap<String, Object>();
                         hs.put("type", "hand_start");
                         hs.put("hand", hand);
-                        hs.put("total", MATCH_HANDS);
+                        hs.put("total", -1); // 打满四风，不固定把数
                         hs.put("dealer", dealer.name());
+                        hs.put("wind", flow.windIdx());
+                        hs.put("windName", DealerFlow.windName(flow.windIdx()));
+                        hs.put("bottom", flow.bottom);
                         hs.put("coins", coinView(coins));
                         send(session, lock, hs);
 
                         GameConfig config = new GameConfig(true, dealer, DISCARD_TIMEOUT_MS, ACTION_TIMEOUT_MS,
-                                System.currentTimeMillis() + hand, true, 0);
+                                System.currentTimeMillis() + hand, true, 0, cfg.enabled, flow.windIdx());
                         RoomManager room = new RoomManager(config, controllers, listener);
                         listener.setRoom(room);
                         final long sid = sessionId;
-                        final int h = hand;
-                        final Seat d = dealer;
                         room.setCheckpoint(snap -> {
                             try {
                                 long v = version.incrementAndGet();
-                                saveMatchState(roomId, v, sid, h, coins, d, snap);
+                                saveMatchState(roomId, v, sid, flow, cfg, coins, snap);
                             } catch (Exception e) {
                                 log.warn("保存 Redis 对局快照失败：{}", e.getMessage());
                             }
@@ -253,22 +269,40 @@ public class WebSocketGameService {
                         }
                         RoundResult r = room.getResult();
 
-                        if (r.isDraw) {
+                        Map<Seat, List<Integer>> flMap = new EnumMap<Seat, List<Integer>>(Seat.class);
+                        Map<Seat, List<Meld>> mMap = new EnumMap<Seat, List<Meld>>(Seat.class);
+                        for (Seat s : Seat.values()) {
+                            Player pp = room.getPlayer(s);
+                            flMap.put(s, pp == null ? new ArrayList<Integer>() : new ArrayList<Integer>(pp.flowers));
+                            mMap.put(s, pp == null ? new ArrayList<Meld>() : new ArrayList<Meld>(pp.melds));
+                        }
+                        Seat dfg = null;
+                        List<Integer> ds0 = room.getPlayerDiscards(flow.dealer);
+                        if (ds0 != null && !ds0.isEmpty()) {
+                            int t0 = ds0.get(0);
                             for (Seat s : Seat.values()) {
-                                coins.put(s, coins.get(s) - 1);
-                            }
-                        } else {
-                            coins.put(r.winner, coins.get(r.winner) + 1);
-                            for (Seat s : Seat.values()) {
-                                if (s != r.winner) {
-                                    coins.put(s, coins.get(s) - 1);
+                                Player pp = room.getPlayer(s);
+                                if (pp == null) continue;
+                                for (Meld m : pp.melds) {
+                                    if (m.type == Meld.Type.GANG && m.from == flow.dealer
+                                            && m.tiles != null && m.tiles.length > 0 && m.tiles[0] == t0) {
+                                        dfg = s;
+                                        break;
+                                    }
                                 }
+                                if (dfg != null) break;
                             }
                         }
-
+                        HainanScore.Settlement st = HainanScore.settleRound(r, flow.dealer, flow.bottom, cfg,
+                                flMap, mMap, room.deckSize(), room.genChainHit(), dfg);
+                        Map<Seat, Integer> delta = st.delta;
+                        Map<Seat, String> detailJsons = buildDetailJsons(st, flMap, mMap);
+                        for (Seat s : Seat.values()) {
+                            coins.put(s, coins.get(s) + delta.get(s));
+                        }
                         if (sessionId > 0) {
                             try {
-                                persistRound(sessionId, hand, r, playerIds);
+                                persistRound(sessionId, hand, r, playerIds, delta, detailJsons);
                                 mysql.updateSessionRound(sessionId, hand);
                             } catch (Exception e) {
                                 log.warn("保存对局数据失败：{}", e.getMessage());
@@ -281,16 +315,14 @@ public class WebSocketGameService {
                         cu.put("coins", coinView(coins));
                         send(session, lock, cu);
 
-                        dealer = dealer.next();
-
+                        flow.afterRound(r);
                         try {
                             long v = version.incrementAndGet();
-                            saveMatchState(roomId, v, sessionId, hand + 1, coins, dealer, null);
+                            saveMatchState(roomId, v, sessionId, flow, cfg, coins, null);
                         } catch (Exception e) {
                             log.warn("保存 Redis 对局状态失败：{}", e.getMessage());
                         }
-
-                        if (hand == MATCH_HANDS) {
+                        if (flow.finished) {
                             completed = true;
                         }
                     }
@@ -345,8 +377,42 @@ public class WebSocketGameService {
         t.start();
     }
 
+    /** 组装每人“本局明细”JSON：{notes, flowers, gangs}，供战绩页图形化渲染。 */
+    private Map<Seat, String> buildDetailJsons(hainanjong.rules.HainanScore.Settlement st,
+                                               Map<Seat, List<Integer>> flMap,
+                                               Map<Seat, List<Meld>> mMap) throws Exception {
+        Map<Seat, String> out = new EnumMap<Seat, String>(Seat.class);
+        for (Seat s : Seat.values()) {
+            Map<String, Object> obj = new LinkedHashMap<String, Object>();
+            List<String> notes = st.notes.get(s);
+            obj.put("notes", notes == null ? new ArrayList<String>() : notes);
+            List<Integer> fl = flMap == null ? null : flMap.get(s);
+            obj.put("flowers", fl == null ? new ArrayList<Integer>() : fl);
+            List<Map<String, Object>> gangs = new ArrayList<Map<String, Object>>();
+            List<Meld> ms = mMap == null ? null : mMap.get(s);
+            if (ms != null) {
+                for (Meld m : ms) {
+                    if (m.type == Meld.Type.GANG || m.type == Meld.Type.AN_GANG || m.type == Meld.Type.BU_GANG) {
+                        Map<String, Object> gm = new LinkedHashMap<String, Object>();
+                        gm.put("type", m.type.name());
+                        List<Integer> ts = new ArrayList<Integer>();
+                        for (int t : m.tiles) {
+                            ts.add(t);
+                        }
+                        gm.put("tiles", ts);
+                        gangs.add(gm);
+                    }
+                }
+            }
+            obj.put("gangs", gangs);
+            out.put(s, mapper.writeValueAsString(obj));
+        }
+        return out;
+    }
+
     /** 保存一把对局及其四家流水。 */
-    private void persistRound(long sessionId, int roundNum, RoundResult r, Map<Seat, Long> playerIds) throws Exception {
+    private void persistRound(long sessionId, int roundNum, RoundResult r, Map<Seat, Long> playerIds,
+                              Map<Seat, Integer> delta, Map<Seat, String> detailJsons) throws Exception {
         boolean isDraw = r.isDraw;
         int winType = isDraw ? 2 : (r.selfDraw ? 0 : 1);
         Long winnerId = (isDraw || r.winner == null) ? null : playerIds.get(r.winner);
@@ -355,13 +421,14 @@ public class WebSocketGameService {
 
         String fanInfo = "{}";
         int totalFan = 0;
-        if (r.hu != null && !r.hu.fanTypes.isEmpty()) {
+        if (!isDraw) {
+            java.util.List<FanType> fans = HainanScore.multFans(r);
             Map<String, Integer> fanMap = new LinkedHashMap<String, Integer>();
-            for (FanType f : r.hu.fanTypes) {
+            for (FanType f : fans) {
                 fanMap.put(f.name(), 1);
             }
             fanInfo = mapper.writeValueAsString(fanMap);
-            totalFan = r.hu.fanTypes.size();
+            totalFan = fans.size();
         }
 
         String winHandJson = null;
@@ -390,18 +457,28 @@ public class WebSocketGameService {
         if (roundId > 0) {
             for (Seat s : Seat.values()) {
                 boolean isWinner = !isDraw && r.winner == s;
-                int change = isWinner ? 1 : -1;
-                mysql.saveRoundScore(roundId, playerIds.get(s), s.ordinal(), change, isWinner);
+                int change = delta == null ? 0 : delta.get(s);
+                String detail = detailJsons == null ? "[]"
+                        : (detailJsons.get(s) == null ? "[]" : detailJsons.get(s));
+                mysql.saveRoundScore(roundId, playerIds.get(s), s.ordinal(), change, isWinner, detail);
             }
         }
     }
 
-    private void saveMatchState(String roomId, long version, long sessionId, int round, Map<Seat, Integer> coins,
-                                Seat dealer, GameSnapshot snapshot) throws Exception {
+    private void saveMatchState(String roomId, long version, long sessionId, DealerFlow flow,
+                                HainanConfig cfg, Map<Seat, Integer> coins,
+                                GameSnapshot snapshot) throws Exception {
         MatchState data = new MatchState();
         data.sessionId = sessionId;
-        data.currentRound = round;
-        data.dealer = dealer == null ? null : dealer.name();
+        data.currentRound = flow.handNo;
+        data.dealer = flow.dealer == null ? null : flow.dealer.name();
+        data.cfg = cfg;
+        data.firstDealer = flow.firstDealer() == null ? null : flow.firstDealer().name();
+        data.bottom = flow.bottom;
+        data.windIdx = flow.windIdx();
+        data.flowHand = flow.handNo;
+        data.firstDealerBegins = flow.begins();
+        data.handsPlayed = flow.handsPlayed();
         for (Seat seat : Seat.values()) {
             data.coins.put(seat.name(), coins.get(seat));
         }
@@ -500,6 +577,8 @@ public class WebSocketGameService {
                 g.human.act(reqId, ((Number) msg.get("index")).intValue());
             } else if ("pass".equals(type)) {
                 g.human.pass(reqId);
+            } else if ("baoting".equals(type)) {
+                g.human.baoTing(reqId);
             } else if ("quit".equals(type)) {
                 g.quit = true;
                 if (g.room != null) {

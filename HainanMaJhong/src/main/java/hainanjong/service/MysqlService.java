@@ -77,8 +77,15 @@ public class MysqlService {
                     + " user_id BIGINT NOT NULL,"
                     + " seat TINYINT NOT NULL,"
                     + " score_change INT DEFAULT 0,"
-                    + " is_winner BOOLEAN DEFAULT 0"
+                    + " is_winner BOOLEAN DEFAULT 0,"
+                    + " detail JSON"
                     + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+            // 兼容旧表：补加 detail 列
+            try {
+                jdbc.execute("ALTER TABLE game_round_scores ADD COLUMN detail JSON");
+            } catch (Exception ignored) {
+                // 列已存在，忽略
+            }
             log.info("数据表已就绪：user / game_sessions / game_rounds / game_round_scores");
         } catch (Exception e) {
             log.warn("初始化数据表失败（请确认 MySQL 已启动）：{}", e.getMessage());
@@ -184,10 +191,10 @@ public class MysqlService {
                 sessionId, roundNum, isDraw ? 1 : 0, winType, winnerId, loserId, winTile, winHandJson, fanInfoJson, totalFan);
     }
 
-    /** 保存一把对局中某位玩家的盈亏流水。 */
-    public void saveRoundScore(long roundId, long userId, int seat, int scoreChange, boolean isWinner) {
-        jdbc.update("INSERT INTO game_round_scores(round_id, user_id, seat, score_change, is_winner)"
-                + " VALUES(?,?,?,?,?)", roundId, userId, seat, scoreChange, isWinner ? 1 : 0);
+    /** 保存一把对局中某位玩家的盈亏流水及该局明细标签（杠/花/胡）。 */
+    public void saveRoundScore(long roundId, long userId, int seat, int scoreChange, boolean isWinner, String detailJson) {
+        jdbc.update("INSERT INTO game_round_scores(round_id, user_id, seat, score_change, is_winner, detail)"
+                + " VALUES(?,?,?,?,?,?)", roundId, userId, seat, scoreChange, isWinner ? 1 : 0, detailJson);
     }
 
     // ==================== 战绩查询 ====================
@@ -240,6 +247,19 @@ public class MysqlService {
                         + " LEFT JOIN game_round_scores rc ON rc.round_id = r.id AND rc.user_id = ?"
                         + " WHERE r.session_id = ? ORDER BY r.round_num",
                 userId, sessionId);
+    }
+
+    /** 某房间每一把的全局四家明细（每行 = 一把 × 一位玩家，含其 detail 标签）。 */
+    public List<Map<String, Object>> sessionRoundsAll(long sessionId) {
+        return jdbc.queryForList(
+                "SELECT r.round_num AS roundNum, r.is_draw AS isDraw, r.win_type AS winType,"
+                        + " r.winner_id AS winnerId, r.loser_id AS loserId, r.win_tile AS winTile,"
+                        + " r.win_hand AS winHand, r.fan_info AS fanInfo, r.total_fan AS totalFan,"
+                        + " rc.user_id AS userId, rc.seat AS seat,"
+                        + " rc.score_change AS scoreChange, rc.is_winner AS isWinner, rc.detail AS detail"
+                        + " FROM game_rounds r JOIN game_round_scores rc ON rc.round_id = r.id"
+                        + " WHERE r.session_id = ? ORDER BY r.round_num, rc.seat",
+                sessionId);
     }
 
     private long insertReturningKey(String sql, Object... args) {
