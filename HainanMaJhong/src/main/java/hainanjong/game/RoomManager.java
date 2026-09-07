@@ -37,12 +37,21 @@ public class RoomManager {
 
     private final List<Integer> deck = new ArrayList<Integer>();
     private final List<Integer> discardPile = new ArrayList<Integer>();
+    private final Map<Seat, List<Integer>> playerDiscards = new EnumMap<Seat, List<Integer>>(Seat.class);
     private final Random random = new Random();
 
     private ScheduledExecutorService scheduler;
     private volatile boolean roundOver;
+    private volatile boolean cancelled;
+    private boolean lastDrawKongFlower; // 本次摸牌是否为杠后/花后补牌（用于杠开判定）
+    private volatile Runnable pendingForce;
     private RoundResult result;
     private int turnCount;
+    private Seat currentSeat;
+    private boolean currentSkipDraw;
+    private boolean currentAllowWin;
+    private String currentPhase = "TURN";
+    private volatile Consumer<GameSnapshot> checkpoint;
 
     public RoomManager(GameConfig config, Map<Seat, PlayerController> controllers, GameListener listener) {
         this.config = config;
@@ -74,11 +83,15 @@ public class RoomManager {
             public void onRoundDraw() {
             }
 
+            public void onResume() {
+            }
+
             public void onEnd(RoundResult r) {
             }
         };
         for (Seat s : Seat.values()) {
             players.put(s, new Player(s, controllers.get(s)));
+            playerDiscards.put(s, new ArrayList<Integer>());
         }
     }
 
@@ -86,9 +99,145 @@ public class RoomManager {
         return result;
     }
 
+    /** 本次(最后)摸牌是否是杠后/花后补牌（自摸胡时用于判定“杠开”）。 */
+    public boolean wasLastDrawKongFlower() {
+        return lastDrawKongFlower;
+    }
+
     /** 读取某座位玩家的当前状态（供前端/监听器取手牌等）。 */
     public Player getPlayer(Seat seat) {
         return players.get(seat);
+    }
+
+    /** 读取某座位玩家本把的弃牌列表。 */
+    public List<Integer> getPlayerDiscards(Seat seat) {
+        return playerDiscards.get(seat);
+    }
+
+    /** 取消当前对局（玩家主动退出）：立即解除阻塞并终止本把。 */
+    public void cancel() {
+        cancelled = true;
+        Runnable f = pendingForce;
+        if (f != null) {
+            f.run();
+        }
+    }
+
+    public boolean isCancelled() {
+        return cancelled;
+    }
+
+    /** 设置回合检查点回调（每把每次出牌前调用，用于把完整状态写入 Redis）。 */
+    public void setCheckpoint(Consumer<GameSnapshot> checkpoint) {
+        this.checkpoint = checkpoint;
+    }
+
+    private void doCheckpoint() {
+        if (checkpoint != null) {
+            try {
+                checkpoint.accept(snapshot());
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    /** 导出当前完整快照（牌墙/出牌堆/四家手牌与副露/当前出牌者）。 */
+    public GameSnapshot snapshot() {
+        GameSnapshot s = new GameSnapshot();
+        s.deck.addAll(deck);
+        s.discardPile.addAll(discardPile);
+        for (Seat seat : Seat.values()) {
+            Player p = players.get(seat);
+            GameSnapshot.PlayerState ps = new GameSnapshot.PlayerState();
+            ps.hand.addAll(p.hand);
+            ps.flowers.addAll(p.flowers);
+            ps.lastDrawn = p.lastDrawn;
+            for (Meld m : p.melds) {
+                GameSnapshot.MeldState ms = new GameSnapshot.MeldState();
+                ms.type = m.type.name();
+                for (int t : m.tiles) {
+                    ms.tiles.add(t);
+                }
+                ms.from = m.from == null ? null : m.from.name();
+                ps.melds.add(ms);
+            }
+            s.players.put(seat.name(), ps);
+        }
+        for (Seat seat : Seat.values()) {
+            s.discards.put(seat.name(), new ArrayList<Integer>(playerDiscards.get(seat)));
+        }
+        s.currentSeat = currentSeat == null ? null : currentSeat.name();
+        s.skipDraw = currentSkipDraw;
+        s.allowWin = currentAllowWin;
+        s.phase = currentPhase;
+        return s;
+    }
+
+    /** 从快照恢复并继续这一把（不发牌，直接续接当前出牌者的回合）。 */
+    public void resume(GameSnapshot snap) {
+        deck.clear();
+        deck.addAll(snap.deck);
+        discardPile.clear();
+        discardPile.addAll(snap.discardPile);
+
+        for (Seat seat : Seat.values()) {
+            Player p = players.get(seat);
+            p.hand.clear();
+            p.melds.clear();
+            p.flowers.clear();
+            p.lastDrawn = -1;
+            GameSnapshot.PlayerState ps = snap.players == null ? null : snap.players.get(seat.name());
+            if (ps != null) {
+                p.hand.addAll(ps.hand);
+                p.flowers.addAll(ps.flowers);
+                p.lastDrawn = ps.lastDrawn;
+                if (ps.melds != null) {
+                    for (GameSnapshot.MeldState ms : ps.melds) {
+                        Meld.Type type = Meld.Type.valueOf(ms.type);
+                        int[] tiles = new int[ms.tiles.size()];
+                        for (int i = 0; i < tiles.length; i++) {
+                            tiles[i] = ms.tiles.get(i);
+                        }
+                        Seat from = ms.from == null ? null : Seat.valueOf(ms.from);
+                        p.melds.add(new Meld(type, tiles, from));
+                    }
+                }
+            }
+            p.sortHand();
+        }
+
+        roundOver = false;
+        cancelled = false;
+        // 恢复各家弃牌
+        for (Seat seat : Seat.values()) {
+            List<Integer> ds = playerDiscards.get(seat);
+            ds.clear();
+            List<Integer> sd = snap.discards == null ? null : snap.discards.get(seat.name());
+            if (sd != null) {
+                ds.addAll(sd);
+            }
+        }
+        scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "mahjong-timer");
+            t.setDaemon(true);
+            return t;
+        });
+        listener.onResume();
+        try {
+            if ("RESPOND".equals(snap.phase)) {
+                // 从弃牌后恢复：重新处理其他家的响应
+                Seat discarder = Seat.valueOf(snap.currentSeat);
+                int tile = discardPile.isEmpty() ? -1 : discardPile.get(discardPile.size() - 1);
+                continueAfterDiscard(discarder, tile);
+            } else {
+                doTurn(Seat.valueOf(snap.currentSeat), snap.skipDraw, snap.allowWin);
+            }
+        } finally {
+            scheduler.shutdownNow();
+        }
+        if (!cancelled) {
+            listener.onEnd(result);
+        }
     }
 
     // ==================== 启动 ====================
@@ -107,7 +256,9 @@ public class RoomManager {
         } finally {
             scheduler.shutdownNow();
         }
-        listener.onEnd(result);
+        if (!cancelled) {
+            listener.onEnd(result);
+        }
     }
 
     private void buildDeck() {
@@ -158,10 +309,16 @@ public class RoomManager {
      * @param allowWin 是否允许自摸胡/杠判定（碰吃后为 false，避免把碰后的 11 张误判成自摸）
      */
     private void doTurn(Seat seat, boolean skipDraw, boolean allowWin) {
-        if (roundOver) return;
+        currentSeat = seat;
+        currentSkipDraw = skipDraw;
+        currentAllowWin = allowWin;
+        if (roundOver || cancelled) return;
+        currentPhase = "TURN";
+        doCheckpoint();
         Player p = players.get(seat);
 
         if (!skipDraw) {
+            lastDrawKongFlower = false; // 普通摸牌默认不是杠/花后
             int t = drawOne(p);
             if (t < 0) {
                 endDraw();
@@ -173,13 +330,14 @@ public class RoomManager {
 
         // 自摸胡 / 暗杠 / 补杠（杠后补牌，可连续）
         if (allowWin) {
-            while (!roundOver) {
+            while (!roundOver && !cancelled) {
                 List<Action> opts = detectDrawActions(p);
                 if (opts.isEmpty()) break;
                 Action a = requestDrawAction(p, opts);
                 if (a == null || a.type == Action.Type.PASS) break;
                 applyDrawAction(p, a);
-                if (roundOver) return;
+                if (roundOver || cancelled) return;
+                lastDrawKongFlower = true; // 杠后补牌：若自摸胡即为“杠开”
                 int t = drawOne(p); // 杠后补牌
                 if (t < 0) {
                     endDraw();
@@ -187,18 +345,22 @@ public class RoomManager {
                 }
             }
         }
-        if (roundOver) return;
+        if (roundOver || cancelled) return;
 
-        // 出牌
+        // 出牌（discard 内会在出牌后、广播前保存 RESPOND 快照）
         int tile = discard(p);
-        if (roundOver) return;
+        if (roundOver || cancelled) return;
 
         // 处理其他三家的动作
-        Claim claim = resolveDiscard(p, tile);
-        if (roundOver) return;
+        continueAfterDiscard(seat, tile);
+    }
+
+    private void continueAfterDiscard(Seat discarder, int tile) {
+        Claim claim = resolveDiscard(players.get(discarder), tile);
+        if (roundOver || cancelled) return;
 
         if (claim == null) {
-            doTurn(seat.next(), false, true);
+            doTurn(discarder.next(), false, true);
         } else if (claim.action.type == Action.Type.PENG || claim.action.type == Action.Type.CHI) {
             doTurn(claim.seat, true, false); // 碰/吃后不抓牌，直接出牌
         } else { // 明杠后补牌
@@ -211,6 +373,7 @@ public class RoomManager {
             int t = takeFromWall();
             if (t < 0) return -1;
             if (isFlower(t)) {
+                lastDrawKongFlower = true; // 摸到花补牌：补的那张若自摸胡视为“杠开”
                 p.flowers.add(t);
                 listener.onFlower(p.seat, t);
                 continue; // 花牌放一旁，补牌
@@ -227,7 +390,11 @@ public class RoomManager {
         int tile = requestDiscard(p);
         p.remove(tile, 1);
         discardPile.add(tile);
+        playerDiscards.get(p.seat).add(tile);
         turnCount++;
+        // 先存 Redis（含这次弃牌的完整快照），再广播：保证收到出牌消息时 Redis 一定已落盘
+        currentPhase = "RESPOND";
+        doCheckpoint();
         listener.onDiscard(p.seat, tile);
         if (config.maxTurns > 0 && turnCount >= config.maxTurns) {
             endDraw();
@@ -320,12 +487,29 @@ public class RoomManager {
     }
 
     /**
-     * 将副露视作 3 张一组，连同手牌与额外一张牌，交给查表法判胡。
+     * 判胡只看“暗牌”：吃/碰/杠已固定成组，不再折回 14 张一起重拆。
+     * 暗牌（含摸/吃到的那张）张数 = 14 - 3×副露数，即 14/11/8/5/2，
+     * 交给按张数查表的 canHuConcealed。
      */
     private boolean canHu(Player p, int extraTile) {
-        return HuLib.checkHu(buildVirtualHand(p, extraTile)).isHu;
+        return HuLib.canHuConcealed(buildConcealedHand(p, extraTile));
     }
 
+    private int[] buildConcealedHand(Player p, int extraTile) {
+        int[] cnt = new int[HuLib.TOTAL_TILES];
+        for (int t : p.hand) {
+            cnt[t]++;
+        }
+        if (extraTile >= 0) {
+            cnt[extraTile]++;
+        }
+        return cnt;
+    }
+
+    /**
+     * 判胡结果/番型时把副露折回 14 张的虚拟手牌（牌面内容不变，仅用于取番型），
+     * 结构合法性已由 {@link #canHu} 在暗牌上保证。
+     */
     private int[] buildVirtualHand(Player p, int extraTile) {
         int[] cnt = new int[HuLib.TOTAL_TILES];
         for (Meld m : p.melds) {
@@ -484,10 +668,19 @@ public class RoomManager {
     }
 
     private void win(Player p, boolean selfDraw, int extraTile, Seat from) {
-        HuResult res = HuLib.checkHu(buildVirtualHand(p, extraTile));
+        int[] cnt = buildVirtualHand(p, extraTile);
+        HuResult res = HuLib.checkHu(cnt);
         roundOver = true;
         int winTile = selfDraw ? p.lastDrawn : extraTile;
-        result = RoundResult.win(p.seat, selfDraw, winTile, from, res);
+        // 暗牌手牌（含胡的那张）
+        List<Integer> hand = new ArrayList<Integer>(p.hand);
+        if (extraTile >= 0) {
+            hand.add(extraTile);
+        }
+        Collections.sort(hand);
+        // 副露（杠按 4 张，保持原样）
+        List<Meld> melds = new ArrayList<Meld>(p.melds);
+        result = RoundResult.win(p.seat, selfDraw, winTile, from, res, hand, melds);
         listener.onHu(p.seat, res, selfDraw, winTile, from);
     }
 
@@ -495,8 +688,9 @@ public class RoomManager {
 
     private int requestDiscard(Player p) {
         final int forcedTile = autoDiscard(p);
+        listener.onTurnStart(p.seat, "discard", config.discardTimeoutMs);
         Integer chosen = prompt(p.seat, "出牌", config.discardTimeoutMs,
-                reply -> p.controller.onDiscardTurn(p.seat, new ArrayList<Integer>(p.hand),
+                reply -> p.controller.onDiscardTurn(p.seat, new ArrayList<Integer>(p.hand), p.lastDrawn,
                         new Responder() {
                             public void discard(int k) {
                                 reply.accept(k);
@@ -553,9 +747,12 @@ public class RoomManager {
     }
 
     /**
-     * 强制出牌时选择的牌：优先单张孤张（字牌→孤张数牌→任意单张），否则第一张。
+     * 强制出牌时选择的牌：优先打出刚摸到的那张，否则按孤张（字牌→孤张数牌→任意单张）→第一张。
      */
     private int autoDiscard(Player p) {
+        if (p.lastDrawn >= 0 && p.hand.contains(p.lastDrawn)) {
+            return p.lastDrawn;
+        }
         List<Integer> h = p.hand;
         for (int t : h) if (t >= 27 && p.count(t) == 1) return t;
         for (int t : h) if (t < 27 && p.count(t) == 1 && isolated(h, t)) return t;
@@ -605,6 +802,7 @@ public class RoomManager {
             }
             latch.countDown();
         };
+        pendingForce = force;
 
         ScheduledFuture<?> f = null;
         if (scheduler != null && timeoutMs > 0) {
@@ -623,6 +821,7 @@ public class RoomManager {
         if (f != null) {
             f.cancel(false);
         }
+        pendingForce = null;
         if (forcedFlag[0]) {
             listener.onTimeout(seat, what);
         }

@@ -77,6 +77,11 @@ public class PrintListener implements GameListener {
     }
 
     @Override
+    public void onResume() {
+        log("[恢复] 已从快照恢复对局");
+    }
+
+    @Override
     public void onEnd(RoundResult result) {
         log("[结束] " + result);
     }

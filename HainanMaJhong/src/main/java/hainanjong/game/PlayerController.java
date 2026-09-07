@@ -17,7 +17,7 @@ public interface PlayerController {
      * @param hand      当前手牌（副本，已排序）
      * @param responder 通过 {@code responder.discard(tile)} 应答
      */
-    void onDiscardTurn(Seat seat, List<Integer> hand, Responder responder);
+    void onDiscardTurn(Seat seat, List<Integer> hand, int drawnTile, Responder responder);
 
     /**
      * {@code seat} 可以对别人打出的 {@code discardedTile} 做出反应。

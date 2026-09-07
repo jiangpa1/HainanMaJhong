@@ -18,6 +18,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  * <p>注意：这里不阻塞房间线程——回调方法只记录 responder 并立即返回，
  * 前端回复后由 WebSocket 线程调用 responder 完成应答；超时由 {@code RoomManager}
  * 的定时器强制处理。</p>
+ *
+ * <p>发送端可在断线重连时通过 {@link #attach} 更换，并用 {@link #resendPending}
+ * 把仍在等待回复的请求重新发给新连接（多人房断线回座位用）。</p>
  */
 public class HumanPlayerController implements PlayerController {
 
@@ -29,17 +32,29 @@ public class HumanPlayerController implements PlayerController {
     private static final class Pending {
         final Responder responder;
         final List<Action> options;
-        Pending(Responder r, List<Action> o) { responder = r; options = o; }
+        final Map<String, Object> msg; // 已发送的原始请求，重连时可重发
+        Pending(Responder r, List<Action> o, Map<String, Object> m) {
+            responder = r;
+            options = o;
+            msg = m;
+        }
     }
 
-    private final Sender sender;
-    private final long timeoutMs;
+    private volatile Sender sender;
+    private final long discardTimeoutMs; // 出牌超时（毫秒），会随请求发给前端做倒计时
+    private final long actionTimeoutMs;  // 吃碰杠胡/自摸响应超时（毫秒）
     private final AtomicInteger seq = new AtomicInteger();
     private final Map<Integer, Pending> pending = new HashMap<Integer, Pending>();
 
-    public HumanPlayerController(Sender sender, long timeoutMs) {
+    public HumanPlayerController(Sender sender, long discardTimeoutMs, long actionTimeoutMs) {
         this.sender = sender;
-        this.timeoutMs = timeoutMs;
+        this.discardTimeoutMs = discardTimeoutMs;
+        this.actionTimeoutMs = actionTimeoutMs;
+    }
+
+    /** 更换消息出口（断线重连后指向新的 WebSocket session）。 */
+    public void attach(Sender newSender) {
+        this.sender = newSender;
     }
 
     /** 清空未完成的待决请求（每把开始前调用，避免上把的迟到响应串台）。 */
@@ -49,54 +64,79 @@ public class HumanPlayerController implements PlayerController {
         }
     }
 
-    @Override
-    public void onDiscardTurn(Seat seat, List<Integer> hand, Responder responder) {
-        int id = seq.incrementAndGet();
+    /** 把仍在等待前端回复的请求原样重发给当前出口（重连后调用）。 */
+    public void resendPending() {
+        List<Map<String, Object>> msgs;
         synchronized (pending) {
-            pending.clear();
-            pending.put(id, new Pending(responder, null));
+            msgs = new ArrayList<Map<String, Object>>();
+            for (Pending p : pending.values()) {
+                if (p.msg != null) {
+                    msgs.add(p.msg);
+                }
+            }
         }
+        Sender s = sender;
+        for (Map<String, Object> m : msgs) {
+            if (s != null) {
+                s.send(m);
+            }
+        }
+    }
+
+    @Override
+    public void onDiscardTurn(Seat seat, List<Integer> hand, int drawnTile, Responder responder) {
+        int id = seq.incrementAndGet();
         Map<String, Object> m = new HashMap<String, Object>();
         m.put("type", "request");
         m.put("kind", "discard");
         m.put("reqId", id);
         m.put("hand", new ArrayList<Integer>(hand));
-        m.put("timeoutMs", timeoutMs);
-        sender.send(m);
+        m.put("drawnTile", drawnTile);
+        m.put("timeoutMs", discardTimeoutMs);
+        remember(id, responder, null, m);
+        emit(m);
     }
 
     @Override
     public void onActionChance(Seat seat, int tile, List<Action> options, Responder responder) {
         int id = seq.incrementAndGet();
-        synchronized (pending) {
-            pending.clear();
-            pending.put(id, new Pending(responder, options));
-        }
         Map<String, Object> m = new HashMap<String, Object>();
         m.put("type", "request");
         m.put("kind", "action");
         m.put("reqId", id);
         m.put("tile", tile);
         m.put("options", serializeOptions(options));
-        m.put("timeoutMs", timeoutMs);
-        sender.send(m);
+        m.put("timeoutMs", actionTimeoutMs);
+        remember(id, responder, options, m);
+        emit(m);
     }
 
     @Override
     public void onDrawChance(Seat seat, int drawnTile, List<Action> options, Responder responder) {
         int id = seq.incrementAndGet();
-        synchronized (pending) {
-            pending.clear();
-            pending.put(id, new Pending(responder, options));
-        }
         Map<String, Object> m = new HashMap<String, Object>();
         m.put("type", "request");
         m.put("kind", "draw");
         m.put("reqId", id);
         m.put("drawnTile", drawnTile);
         m.put("options", serializeOptions(options));
-        m.put("timeoutMs", timeoutMs);
-        sender.send(m);
+        m.put("timeoutMs", actionTimeoutMs);
+        remember(id, responder, options, m);
+        emit(m);
+    }
+
+    private void remember(int id, Responder responder, List<Action> options, Map<String, Object> m) {
+        synchronized (pending) {
+            pending.clear();
+            pending.put(id, new Pending(responder, options, m));
+        }
+    }
+
+    private void emit(Map<String, Object> m) {
+        Sender s = sender;
+        if (s != null) {
+            s.send(m);
+        }
     }
 
     private List<Map<String, Object>> serializeOptions(List<Action> options) {

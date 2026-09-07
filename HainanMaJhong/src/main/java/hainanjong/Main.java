@@ -20,6 +20,12 @@ public class Main {
         System.out.println(err == 0
                 ? "随机对照 200000 手：全部一致，通过。"
                 : "随机对照发现 " + err + " 处不一致！");
+
+        System.out.println();
+        int err2 = fuzzConcealedSizes(150000);
+        System.out.println(err2 == 0
+                ? "随机对照（暗牌 2/5/8/11/14 张）150000 手：全部一致，通过。"
+                : "暗牌多张数对照发现 " + err2 + " 处不一致！");
     }
 
     // ---- 构造辅助：成对 (下标, 张数) ----
@@ -193,6 +199,91 @@ public class Main {
         }
         t[ORPHANS[r.nextInt(ORPHANS.length)]]++;
         return t;
+    }
+
+    // ==================== 多张数暗牌对照（2/5/8/11/14 张） ====================
+
+    static int fuzzConcealedSizes(int n) {
+        Random rnd = new Random(67890);
+        int err = 0;
+        for (int k = 0; k < n; k++) {
+            int size = HuLib.CONCEALED_COUNTS[rnd.nextInt(HuLib.CONCEALED_COUNTS.length)];
+            int[] t34 = rnd.nextBoolean() ? randomConcealedValid(rnd, size) : randomOfSize(rnd, size);
+            boolean lib = HuLib.canHuConcealed(to42(t34));
+            boolean ref = refCanHu(t34);
+            if (lib != ref) {
+                err++;
+                if (err <= 10) {
+                    System.out.println("不一致(" + size + "张): 查表=" + lib + " 暴力=" + ref + "  " + HuLib.formatHand(to42(t34)));
+                }
+            }
+        }
+        return err;
+    }
+
+    /** 任意给定张数的随机手牌（多数不成胡，用于反例对照）。 */
+    static int[] randomOfSize(Random r, int size) {
+        int[] t = new int[34];
+        for (int k = 0; k < size; k++) {
+            int i;
+            do {
+                i = r.nextInt(34);
+            } while (t[i] >= 4);
+            t[i]++;
+        }
+        return t;
+    }
+
+    /** 构造某张数(2/5/8/11/14)一定能成胡的正例：((size-2)/3) 副 + 一对。 */
+    static int[] randomConcealedValid(Random r, int size) {
+        int[] t = new int[34];
+        int melds = (size - 2) / 3;
+        for (int m = 0; m < melds; m++) {
+            if (r.nextBoolean()) {
+                int i;
+                do {
+                    i = r.nextInt(34);
+                } while (t[i] + 3 > 4);
+                t[i] += 3;
+            } else {
+                int suit, start;
+                do {
+                    suit = r.nextInt(3);
+                    start = suit * 9 + r.nextInt(7);
+                } while (t[start] + 1 > 4 || t[start + 1] + 1 > 4 || t[start + 2] + 1 > 4);
+                t[start]++;
+                t[start + 1]++;
+                t[start + 2]++;
+            }
+        }
+        int i;
+        do {
+            i = r.nextInt(34);
+        } while (t[i] + 2 > 4);
+        t[i] += 2;
+        return t;
+    }
+
+    /** 独立暴力参考：任意 3k+2 张数（14 含七对/十三幺）能否成胡。 */
+    static boolean refCanHu(int[] t) {
+        int total = 0;
+        boolean even = true;
+        for (int i = 0; i < 34; i++) {
+            total += t[i];
+            if (t[i] % 2 != 0) {
+                even = false;
+            }
+        }
+        if (total != 2 && total != 5 && total != 8 && total != 11 && total != 14) {
+            return false;
+        }
+        if (total == 14 && even) {
+            return true; // 七对
+        }
+        if (total == 14 && refOrphans(t)) {
+            return true; // 十三幺
+        }
+        return canForm(t.clone(), true); // 副 + 将
     }
 
     // ---- 参考实现（独立暴力，与查表法对照） ----

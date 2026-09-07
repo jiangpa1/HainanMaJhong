@@ -6,8 +6,8 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 /**
  * 海南麻将 Spring Boot 启动类。
  *
- * <p>启动后会自动：加载 Redis / MySQL 配置，注册 Service 与 Listener，
- * 并由 {@link hainanjong.runner.DemoGameRunner} 跑一局演示对局（含持久化）。</p>
+ * <p>启动后自动：加载 Redis / MySQL 配置，注册 Service、WebSocket 端点与 REST 接口，
+ * 静态页面（登录 / 大厅 / 对局）由内嵌 Tomcat 提供。</p>
  */
 @SpringBootApplication
 public class HainanMaJhongApplication {
