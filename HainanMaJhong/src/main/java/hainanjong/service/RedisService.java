@@ -1,23 +1,19 @@
 package hainanjong.service;
 
-import hainanjong.game.Seat;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
-import java.util.Map;
 
 /**
- * Redis 服务：缓存实时牌局状态、玩家在线状态、最近战绩。
+ * Redis 服务：缓存进行中的房间状态（用于断线/重启恢复）。
  *
- * <p>所有 key 都带 {@code mahjong:} 前缀，方便区分与清理。</p>
+ * <p>存储结构：{@code room:{roomId} -> {version, data}}，30 分钟自动过期。</p>
  */
 @Service
 public class RedisService {
 
-    private static final String ONLINE_KEY = "mahjong:online";
-    private static final String ROOM_PREFIX = "mahjong:room:";
-    private static final String LATEST_PREFIX = "mahjong:latest:";
+    private static final String ROOM_PREFIX = "room:"; // room:{roomId} -> {version, data}
 
     private final StringRedisTemplate redis;
 
@@ -25,37 +21,18 @@ public class RedisService {
         this.redis = redis;
     }
 
-    // ==================== 玩家在线 ====================
-
-    public void markOnline(Seat seat) {
-        redis.opsForSet().add(ONLINE_KEY, seat.name());
+    /** 保存某个房间进行中的状态（JSON 字符串含 version+data，覆盖写，30 分钟自动过期）。 */
+    public void saveRoomState(String roomId, String json) {
+        redis.opsForValue().set(ROOM_PREFIX + roomId, json, Duration.ofMinutes(30));
     }
 
-    public void markOffline(Seat seat) {
-        redis.opsForSet().remove(ONLINE_KEY, seat.name());
+    /** 读取某个房间进行中的状态；没有则返回 null。 */
+    public String getRoomState(String roomId) {
+        return redis.opsForValue().get(ROOM_PREFIX + roomId);
     }
 
-    public boolean isOnline(Seat seat) {
-        return Boolean.TRUE.equals(redis.opsForSet().isMember(ONLINE_KEY, seat.name()));
-    }
-
-    // ==================== 牌局状态（Hash） ====================
-
-    public void putRoomState(String roomId, String field, String value) {
-        redis.opsForHash().put(ROOM_PREFIX + roomId, field, value);
-    }
-
-    public Map<Object, Object> getRoomState(String roomId) {
-        return redis.opsForHash().entries(ROOM_PREFIX + roomId);
-    }
-
-    // ==================== 最近战绩（带过期） ====================
-
-    public void cacheLatestResult(String roomId, String summary) {
-        redis.opsForValue().set(LATEST_PREFIX + roomId, summary, Duration.ofMinutes(30));
-    }
-
-    public String getLatestResult(String roomId) {
-        return redis.opsForValue().get(LATEST_PREFIX + roomId);
+    /** 对局结束后清除状态。 */
+    public void deleteRoomState(String roomId) {
+        redis.delete(ROOM_PREFIX + roomId);
     }
 }

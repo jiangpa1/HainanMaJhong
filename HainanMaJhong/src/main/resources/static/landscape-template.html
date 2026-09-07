@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>横屏麻将 · 分辨率无关模板</title>
+<style>
+  /* ============================================================
+     设计分辨率（逻辑分辨率）。内部所有 UI 都按这个尺寸布局（固定像素），
+     JS 会算出 scale 让核心区等比例装入任意屏幕。
+     ============================================================ */
+  :root {
+    --design-w: 1280px;
+    --design-h: 720px;
+    --scale: 1;                       /* 由 JS 动态写入 */
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+  }
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: #0c382a;              /* 兜底底色，超长屏背景图 cover 也不会露黑边 */
+  }
+
+  /* ============================================================
+     第一层：#game-app 旋转层
+     - 竖屏持握时 rotate(90deg)，宽=物理高度(100dvh)，高=物理宽度(100dvw)
+     - 物理转横屏时 @media 不匹配，自动恢复
+     - 背景用大图 cover 模式，长屏两侧/上下多出来的区域由背景填充，无黑边
+     ============================================================ */
+  #game-app {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    background: url('img/table_bg.png') center / cover no-repeat;
+  }
+  @media (orientation: portrait) {
+    #game-app {
+      top: 50%;
+      left: 50%;
+      width: 100dvh;   /* 横屏宽 = 物理高度 */
+      height: 100dvw;  /* 横屏高 = 物理宽度 */
+      -webkit-transform: translate(-50%, -50%) rotate(90deg);
+      transform: translate(-50%, -50%) rotate(90deg);
+    }
+  }
+
+  /* ============================================================
+     第二层：.scale-layer 缩放层（核心内容层）
+     - 尺寸固定为设计分辨率
+     - transform: translate(-50%,-50%) scale(var(--scale)) 居中 + 等比例缩放
+     - 核心区（牌桌/手牌/操作按钮）全部放这里，严禁溢出
+     ============================================================ */
+  .scale-layer {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: var(--design-w);
+    height: var(--design-h);
+    -webkit-transform: translate(-50%, -50%) scale(var(--scale));
+    transform: translate(-50%, -50%) scale(var(--scale));
+    -webkit-transform-origin: center;
+    transform-origin: center;
+  }
+
+  /* ============================================================
+     第三层：核心 UI（按 1280x720 设计分辨率布局，固定像素）
+     ============================================================ */
+
+  /* 牌桌（中心圆示意，替换为真实牌桌即可） */
+  .table {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 640px;
+    height: 420px;
+    transform: translate(-50%, -56%);
+    border-radius: 24px;
+    background: radial-gradient(circle at 50% 35%, rgba(47,122,82,.55), rgba(11,51,36,.9));
+    border: 2px solid rgba(247,215,116,.5);
+  }
+  .table .wind {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 140px; height: 140px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 50% 30%, #2f7a52, #17523a);
+    border: 3px solid rgba(247,215,116,.85);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 40px; font-weight: 900; color: #fff;
+  }
+
+  /* 手牌：flex 布局；gap 用 calc(值 * scale) 随缩放动态调整，避免 14 张牌挤出 */
+  .hand {
+    position: absolute;
+    left: 50%;
+    bottom: 28px;
+    transform: translateX(-50%);
+    display: flex;
+    gap: calc(6px * var(--scale));
+    align-items: flex-end;
+  }
+  .hand .tile {
+    width: 56px;
+    height: 74px;
+    background: #fffdf4;
+    border-radius: 6px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.8), 0 3px 0 #8a6a24, 0 5px 8px rgba(0,0,0,.5);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; font-weight: 900; color: #2c3e50;
+  }
+  .hand .tile img { width: 100%; height: 100%; object-fit: cover; border-radius: 6px; }
+
+  /* 操作按钮：绝对定位在相对底部手牌的固定百分比位置 */
+  .action-bar {
+    position: absolute;
+    left: 50%;
+    bottom: 118px;                    /* 相对手牌上方固定距离 */
+    transform: translateX(-50%);
+    display: flex;
+    gap: 16px;
+  }
+  .action-bar button {
+    padding: 12px 26px;
+    font-size: 22px; font-weight: 900;
+    color: #ffe34d;
+    background: linear-gradient(180deg, rgba(80,150,220,.6), rgba(40,90,160,.6));
+    border: 3px solid #ffe9a8;
+    border-radius: 14px;
+    cursor: pointer;
+    text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
+    box-shadow: 0 5px 0 rgba(10,30,60,.7), 0 8px 14px rgba(0,0,0,.5);
+  }
+  .action-bar button:active { transform: translateY(4px); box-shadow: 0 1px 0 rgba(10,30,60,.7); }
+
+  /* ============================================================
+     边缘锚定按钮：放在缩放层之外，锚定 #game-app 屏幕边缘，不随 scale 缩放
+     旋转后随 #game-app 一起转，锚在物理屏幕边缘
+     ============================================================ */
+  .edge-btn {
+    position: absolute;
+    z-index: 10;
+    width: 48px; height: 48px;
+    border-radius: 50%;
+    border: 1px solid rgba(212,175,55,.5);
+    background: rgba(0,0,0,.35);
+    color: #f5e6c8;
+    font-size: 20px;
+    cursor: pointer;
+  }
+  .edge-btn.settings { top: calc(12px + var(--safe-top)); right: calc(12px + var(--safe-right)); }
+  .edge-btn.records { top: calc(12px + var(--safe-top)); right: calc(70px + var(--safe-right)); }
+
+  /* 引导遮罩（可选） */
+  .guide {
+    position: fixed; inset: 0; z-index: 9999;
+    display: none;
+    align-items: center; justify-content: center;
+    flex-direction: column; gap: 14px;
+    background: rgba(6,24,18,.9); color: #fff; text-align: center;
+  }
+  .guide.show { display: flex; }
+  .guide .gi { font-size: 54px; animation: gi-rotate 2.2s ease-in-out infinite; }
+  @keyframes gi-rotate { 0%,18%{transform:rotate(0)} 55%,100%{transform:rotate(90deg)} }
+</style>
+</head>
+<body>
+
+<!-- 旋转层：背景 cover 填充 -->
+<div id="game-app">
+  <!-- 缩放层：核心内容（牌桌/手牌/操作按钮），按设计分辨率布局 -->
+  <div class="scale-layer" id="scale-layer">
+    <div class="table">
+      <div class="wind">东</div>
+    </div>
+    <div class="hand" id="hand">
+      <!-- 14 张牌占位：换成 <img src="img/tiles/N.png"> 即可 -->
+      <div class="tile">1万</div><div class="tile">2万</div><div class="tile">3万</div>
+      <div class="tile">4万</div><div class="tile">5万</div><div class="tile">6万</div>
+      <div class="tile">7万</div><div class="tile">8万</div><div class="tile">9万</div>
+      <div class="tile">东</div><div class="tile">南</div><div class="tile">西</div>
+      <div class="tile">北</div><div class="tile">中</div>
+    </div>
+    <div class="action-bar">
+      <button>吃</button><button>碰</button><button>杠</button><button style="background:linear-gradient(180deg,#f15a48,#c93025)">胡</button>
+    </div>
+  </div>
+
+  <!-- 边缘锚定按钮（缩放层外） -->
+  <button class="edge-btn settings">⚙</button>
+  <button class="edge-btn records">🏆</button>
+</div>
+
+<!-- 引导遮罩（可选用） -->
+<div class="guide" id="guide"><div class="gi">📱</div><div>请横放手机以获得最佳体验</div></div>
+
+<script>
+/* ============================================================
+   自执行 scale 计算 + 强制虚拟旋转（含点击坐标说明）
+   - 计算逻辑视口（竖屏时宽高互换）
+   - scale = min(逻辑宽 / 设计宽, 逻辑高 / 设计高)，核心区等比例完整装入、居中，不裁剪
+   - 点击坐标：浏览器会自动把 pointer 事件经 transform 反算到正确元素，
+     无需手工重映射；若需手动换算，用 getBoundingClientRect 反算即可。
+   ============================================================ */
+(function () {
+  'use strict';
+
+  var DESIGN_W = 1280;
+  var DESIGN_H = 720;
+  var layer = document.getElementById('scale-layer');
+
+  function isPortrait() {
+    return window.innerHeight > window.innerWidth;
+  }
+
+  // 当前“横屏模式”下的逻辑视口尺寸（旋转后）
+  function logicalViewport() {
+    var vw = window.visualViewport ? window.visualViewport.width : window.innerWidth;
+    var vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    if (isPortrait()) {
+      return { w: vh, h: vw };   // 旋转 90° 后宽高互换
+    }
+    return { w: vw, h: vh };
+  }
+
+  function applyScale() {
+    if (!layer) { return; }
+    var vp = logicalViewport();
+    var scale = Math.min(vp.w / DESIGN_W, vp.h / DESIGN_H);
+    scale = Math.max(0.3, Math.min(scale, 1.5));   // 限制范围，防止极端
+    layer.style.setProperty('--scale', scale.toFixed(4));
+
+    // 可选：极长屏提示（高宽比过大）
+    var guide = document.getElementById('guide');
+    if (guide) {
+      var ratio = isPortrait() ? vp.w / vp.h : vp.h / vp.w; // 横屏模式下的长/短
+      guide.classList.toggle('show', ratio > 2.3);
+    }
+  }
+
+  // 监听：窗口变化、旋转、iOS visualViewport（地址栏伸缩）
+  window.addEventListener('resize', applyScale);
+  window.addEventListener('orientationchange', applyScale);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', applyScale);
+    window.visualViewport.addEventListener('scroll', applyScale);
+  }
+  applyScale();
+})();
+</script>
+</body>
+</html>

@@ -23,7 +23,7 @@ public class BotController implements PlayerController {
     }
 
     @Override
-    public void onDiscardTurn(Seat seat, List<Integer> hand, Responder r) {
+    public void onDiscardTurn(Seat seat, List<Integer> hand, int drawnTile, Responder r) {
         r.discard(pickDiscard(hand));
     }
 

@@ -99,6 +99,47 @@ public class HuLib {
         return checkHu(t);
     }
 
+    // ==================== 按暗牌数量判胡（2/5/8/11/14 张） ====================
+
+    /**
+     * 可判胡的暗牌张数：3k+2（k=0..4 副）。对应玩家持有 0..4 组副露时，
+     * 扣除已固定的吃/碰/杠后，剩余暗牌（含自摸或吃到的那张）的合法张数。
+     */
+    public static final int[] CONCEALED_COUNTS = {2, 5, 8, 11, 14};
+
+    /**
+     * 只对“暗牌”判胡：吃/碰/杠视为已固定成组、不参与拆分，故不计入。
+     *
+     * <p>传入暗牌张数分布（0..33，下标即牌型；花牌不参与成牌），总张数必须为
+     * {@code 2/5/8/11/14}（3k+2，k=0..4）。按张数挑选对应的成胡判据：
+     * <ul>
+     *   <li>14 张（无副露）：额外支持 七对、十三幺，否则查普通“4 副＋1 将”；</li>
+     *   <li>11/8/5/2 张（有副露）：只剩 (total-2)/3 副＋1 将，走普通花色查表。</li>
+     * </ul>
+     */
+    public static boolean canHuConcealed(int[] counts) {
+        int[] t = new int[TOTAL_TILES];
+        System.arraycopy(counts, 0, t, 0, Math.min(counts.length, TOTAL_TILES));
+        int total = sum(t, 0, TILE_TYPES - 1);
+        switch (total) {
+            case 2:   // 一对（将）
+            case 5:   // 1 副 + 将
+            case 8:   // 2 副 + 将
+            case 11:  // 3 副 + 将
+                return isStandard(t);
+            case 14:  // 4 副 + 将；无副露时可另成 七对 / 十三幺
+                if (isThirteenOrphans(t)) {
+                    return true;
+                }
+                if (isSevenPairs(t)) {
+                    return true;
+                }
+                return isStandard(t);
+            default:
+                return false;
+        }
+    }
+
     // ==================== 普通胡（查表法核心） ====================
 
     private static boolean isStandard(int[] t) {

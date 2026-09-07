@@ -117,6 +117,9 @@ public class WebGameListener implements GameListener {
             fans.add(f.toString());
         }
         m.put("fans", fans);
+        if (selfDraw && room != null && room.wasLastDrawKongFlower()) {
+            m.put("ganKai", true);
+        }
         sender.send(m);
     }
 
@@ -128,6 +131,14 @@ public class WebGameListener implements GameListener {
     @Override
     public void onRoundDraw() {
         log("流局");
+    }
+
+    @Override
+    public void onResume() {
+        // 恢复现场后，把完整状态一次性推给前端
+        sendHand();
+        sendCounts();
+        sendBoard();
     }
 
     @Override
@@ -173,9 +184,36 @@ public class WebGameListener implements GameListener {
         sender.send(m);
     }
 
+    private void sendBoard() {
+        if (room == null) {
+            return;
+        }
+        Map<String, List<Integer>> discards = new HashMap<String, List<Integer>>();
+        Map<String, List<Map<String, Object>>> melds = new HashMap<String, List<Map<String, Object>>>();
+        for (Seat s : Seat.values()) {
+            discards.put(s.name(), new ArrayList<Integer>(room.getPlayerDiscards(s)));
+            List<Map<String, Object>> ml = new ArrayList<Map<String, Object>>();
+            Player p = room.getPlayer(s);
+            if (p != null) {
+                for (Meld meld : p.melds) {
+                    ml.add(serializeMeld(meld));
+                }
+            }
+            melds.put(s.name(), ml);
+        }
+        Map<String, Object> m = new HashMap<String, Object>();
+        m.put("type", "board");
+        m.put("discards", discards);
+        m.put("melds", melds);
+        sender.send(m);
+    }
+
     private Map<String, Object> serializeMeld(Meld meld) {
         Map<String, Object> m = new HashMap<String, Object>();
         m.put("type", meld.type.name());
+        if (meld.from != null) {
+            m.put("from", meld.from.name());
+        }
         List<Integer> tiles = new ArrayList<Integer>();
         for (int t : meld.tiles) {
             tiles.add(t);

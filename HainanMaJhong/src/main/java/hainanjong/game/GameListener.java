@@ -24,5 +24,15 @@ public interface GameListener {
 
     void onRoundDraw();
 
+    /** 从快照恢复现场后回调（用于向前端推送完整状态）。 */
+    void onResume();
+
     void onEnd(RoundResult result);
+
+    /**
+     * 某座位进入一次决策回合（出牌/吃碰杠胡/自摸杠）时回调，
+     * 供“多端广播当前轮到谁 + 倒计时”使用；未实现者忽略。
+     */
+    default void onTurnStart(Seat seat, String kind, long timeoutMs) {
+    }
 }
