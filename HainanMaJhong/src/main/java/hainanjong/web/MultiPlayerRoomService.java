@@ -1115,6 +1115,7 @@ public class MultiPlayerRoomService {
             Map<String, Object> m = new HashMap<String, Object>();
             m.put("type", "counts");
             m.put("counts", counts);
+            m.put("wall", rm.deckSize());
             broadcastGame(room, m);
         }
 

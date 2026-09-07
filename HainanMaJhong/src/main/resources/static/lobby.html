@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>海南麻将 · 大厅</title>
-<link rel="stylesheet" href="landscape.css?v=20260907k">
+<link rel="stylesheet" href="landscape.css?v=20260907l">
 <style>
   :root {
     --gold: #d4af37;
@@ -525,10 +525,12 @@ const HN_GROUPS = [
       ['flowerFake','假花（数字 1~4 凑齐）'],
       ['pairTrueFlower','真对花（抓到本人两个位置花）'],
       ['pairFakeFlower','假对花（同号一对但非本人位置）'] ] },
-  { g:'番型倍数（命中多个番型时相加）', rows:[
+  { g:'番型倍数（命中多个相加；天听/地听需在可报听时点“报听”，报听后锁手）', rows:[
       ['multPing','平胡'],['multPeng','碰碰胡'],['multHun','混一色'],['multQing','清一色'],
       ['multQiDui','七对'],['multLongQi','龙七对'],['multShiSanYao','十三幺'],
-      ['multTianHu','天胡'],['multTianTing','天听'],['multDiTing','地听'] ] }
+      ['multTianHu','天胡（当局从未出牌，摸牌即胡）'],
+      ['multTianTing','天听（自己只出过 1 张后，可报听）'],
+      ['multDiTing','地听（庄首张起、庄第 4 张前无人吃碰杠，可报听）'] ] }
 ];
 function createRoomCfg(){
   const saved = localStorage.getItem(HN_CFG_KEY);
@@ -610,6 +612,6 @@ document.getElementById('return-room').addEventListener('click', goReturnRoom);
 refreshReturn();
 setInterval(refreshReturn, 8000);
 </script>
-<script src="landscape.js?v=20260907k"></script>
+<script src="landscape.js?v=20260907l"></script>
 </body>
 </html>
