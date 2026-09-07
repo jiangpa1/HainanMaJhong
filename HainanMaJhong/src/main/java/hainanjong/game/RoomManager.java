@@ -2,6 +2,8 @@ package hainanjong.game;
 
 import hainanjong.HuLib;
 import hainanjong.HuResult;
+import hainanjong.rules.HainanFan;
+import hainanjong.rules.RuleEnv;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -39,6 +41,24 @@ public class RoomManager {
     private final List<Integer> discardPile = new ArrayList<Integer>();
     private final Map<Seat, List<Integer>> playerDiscards = new EnumMap<Seat, List<Integer>>(Seat.class);
     private final Random random = new Random();
+
+    /** 海南规则：牌墙剩这么张时流局（荒庄，庄连庄）。 */
+    public static final int WALL_END = 15;
+
+    /** 出牌应答哨兵：表示“报听并打出刚摸的那张”。 */
+    public static final int REPORT_TILE = -99;
+
+    // 跟牌（庄首张后 下/对/上 依次同牌）追踪
+    private boolean genArmed;
+    private boolean genBroken;
+    private int genTile = -1;
+    private int genStep;
+    private boolean genChainHit;
+
+    // 海南：天胡/报听
+    private int totalDiscards;          // 本把全场已出牌张数
+    private boolean anyMeldThisHand;    // 本把是否出现过吃碰杠（地听窗口会关闭）
+    private final int[] reportMode = new int[4]; // 各座位是否报听：0 无 / 1 天听 / 2 地听
 
     private ScheduledExecutorService scheduler;
     private volatile boolean roundOver;
@@ -127,6 +147,16 @@ public class RoomManager {
         return cancelled;
     }
 
+    /** 当前牌墙剩余张数（结算“牌墙剩≤19 点炮独担三家”等用）。 */
+    public int deckSize() {
+        return deck.size();
+    }
+
+    /** 本把是否触发跟牌（庄首张后 下/对/上 依次同牌）。 */
+    public boolean genChainHit() {
+        return genChainHit;
+    }
+
     /** 设置回合检查点回调（每把每次出牌前调用，用于把完整状态写入 Redis）。 */
     public void setCheckpoint(Consumer<GameSnapshot> checkpoint) {
         this.checkpoint = checkpoint;
@@ -152,6 +182,7 @@ public class RoomManager {
             ps.hand.addAll(p.hand);
             ps.flowers.addAll(p.flowers);
             ps.lastDrawn = p.lastDrawn;
+            ps.reportMode = reportMode[seat.ordinal()];
             for (Meld m : p.melds) {
                 GameSnapshot.MeldState ms = new GameSnapshot.MeldState();
                 ms.type = m.type.name();
@@ -175,6 +206,7 @@ public class RoomManager {
 
     /** 从快照恢复并继续这一把（不发牌，直接续接当前出牌者的回合）。 */
     public void resume(GameSnapshot snap) {
+        resetGenTracking();
         deck.clear();
         deck.addAll(snap.deck);
         discardPile.clear();
@@ -191,6 +223,7 @@ public class RoomManager {
                 p.hand.addAll(ps.hand);
                 p.flowers.addAll(ps.flowers);
                 p.lastDrawn = ps.lastDrawn;
+                reportMode[seat.ordinal()] = ps.reportMode;
                 if (ps.melds != null) {
                     for (GameSnapshot.MeldState ms : ps.melds) {
                         Meld.Type type = Meld.Type.valueOf(ms.type);
@@ -243,6 +276,7 @@ public class RoomManager {
     // ==================== 启动 ====================
 
     public void start() {
+        resetGenTracking();
         buildDeck();
         shuffle();
         deal();
@@ -317,12 +351,20 @@ public class RoomManager {
         doCheckpoint();
         Player p = players.get(seat);
 
+        boolean terminalDraw = false; // 本回合摸到“牌墙最后第16张”（此后剩15张）：只许自摸/补牌，否则流局
         if (!skipDraw) {
+            if (config.hainan && deck.size() <= WALL_END) {
+                endDraw(); // 剩 15 张底牌 → 荒庄流局
+                return;
+            }
             lastDrawKongFlower = false; // 普通摸牌默认不是杠/花后
             int t = drawOne(p);
             if (t < 0) {
                 endDraw();
                 return;
+            }
+            if (config.hainan && deck.size() <= WALL_END) {
+                terminalDraw = true;
             }
         } else {
             p.lastDrawn = -1;
@@ -343,9 +385,18 @@ public class RoomManager {
                     endDraw();
                     return;
                 }
+                if (config.hainan && deck.size() <= WALL_END) {
+                    terminalDraw = true;
+                }
             }
         }
         if (roundOver || cancelled) return;
+
+        // 摸到倒数第16张的玩家：只能自摸或靠花/杠补牌；补完仍不自摸 → 流局（不再出牌）
+        if (terminalDraw) {
+            endDraw();
+            return;
+        }
 
         // 出牌（discard 内会在出牌后、广播前保存 RESPOND 快照）
         int tile = discard(p);
@@ -358,6 +409,10 @@ public class RoomManager {
     private void continueAfterDiscard(Seat discarder, int tile) {
         Claim claim = resolveDiscard(players.get(discarder), tile);
         if (roundOver || cancelled) return;
+
+        if (claim != null) {
+            genArmed = false; // 有吃碰杠打断“依次跟牌”的顺次
+        }
 
         if (claim == null) {
             doTurn(discarder.next(), false, true);
@@ -391,6 +446,8 @@ public class RoomManager {
         p.remove(tile, 1);
         discardPile.add(tile);
         playerDiscards.get(p.seat).add(tile);
+        totalDiscards++;
+        trackGenChain(p, tile);
         turnCount++;
         // 先存 Redis（含这次弃牌的完整快照），再广播：保证收到出牌消息时 Redis 一定已落盘
         currentPhase = "RESPOND";
@@ -400,6 +457,105 @@ public class RoomManager {
             endDraw();
         }
         return tile;
+    }
+
+    /** 跟踪跟牌：庄首张出牌后，若 下/对/上 三家（无吃碰杠打断时）依次出同牌 → 触发跟牌。 */
+    private void trackGenChain(Player p, int tile) {
+        if (!config.hainan) {
+            return;
+        }
+        List<Integer> ds = playerDiscards.get(p.seat);
+        if (p.seat == config.dealer && ds.size() == 1) {
+            genArmed = true;
+            genBroken = false;
+            genStep = 0;
+            genTile = tile;
+            return;
+        }
+        if (!genArmed || genBroken) {
+            return;
+        }
+        if (tile != genTile) {
+            genArmed = false;
+            return;
+        }
+        Seat expect = config.dealer;
+        for (int i = 0; i <= genStep; i++) {
+            expect = expect.next();
+        }
+        if (p.seat == expect) {
+            genStep++;
+            if (genStep >= 3) {
+                genChainHit = true;
+                genArmed = false;
+            }
+        } else {
+            genArmed = false;
+        }
+    }
+
+    private void resetGenTracking() {
+        genArmed = false;
+        genBroken = false;
+        genStep = 0;
+        genTile = -1;
+        genChainHit = false;
+        totalDiscards = 0;
+        anyMeldThisHand = false;
+        for (int i = 0; i < reportMode.length; i++) {
+            reportMode[i] = 0;
+        }
+    }
+
+    // ==================== 海南：天听/地听/报听 ====================
+
+    /** 是否已报听（不可换牌）。 */
+    boolean isReported(Seat s) {
+        return reportMode[s.ordinal()] != 0;
+    }
+
+    /** 当前报听档：0 无 / 1 天听 / 2 地听（按可报窗口）。 */
+    int reportWindow(Seat s) {
+        int myDisc = playerDiscards.get(s).size();
+        int dealerDisc = playerDiscards.get(config.dealer).size();
+        boolean tian = myDisc == 1;                     // 只出过 1 张
+        boolean di = !anyMeldThisHand && dealerDisc >= 1 && dealerDisc <= 3; // 庄首张~第4张前且无人吃碰杠
+        if (tian) {
+            return 1;
+        }
+        return di ? 2 : 0;
+    }
+
+    /** 手牌丢开刚摸那张后是否仍“听”（结构能胡即可，不计番）。 */
+    private boolean readyAfterDrop(Player p) {
+        if (p.lastDrawn < 0 || p.hand.size() != 14) {
+            return false;
+        }
+        int[] c = new int[42];
+        for (int t : p.hand) {
+            c[t]++;
+        }
+        if (c[p.lastDrawn] <= 0) {
+            return false;
+        }
+        c[p.lastDrawn]--;
+        for (int w = 0; w < 34; w++) {
+            if (c[w] >= 4) {
+                continue;
+            }
+            c[w]++;
+            boolean ok = HuLib.canHuConcealed(c);
+            c[w]--;
+            if (ok) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void doReport(Seat s, int mode) {
+        reportMode[s.ordinal()] = mode;
+        listener.onReport(s, mode);
     }
 
     private void endDraw() {
@@ -427,6 +583,15 @@ public class RoomManager {
      */
     private List<Action> detectDiscardActions(Player q, int tile, Seat discarder) {
         List<Action> acts = new ArrayList<Action>();
+
+        // 已报听：不可换牌，只能胡（不能再吃碰明杠）
+        if (config.hainan && isReported(q.seat)) {
+            if (canHu(q, tile)) {
+                acts.add(Action.hu(tile, discarder));
+            }
+            sortByPriority(acts);
+            return acts;
+        }
 
         if (canHu(q, tile)) {
             acts.add(Action.hu(tile, discarder));
@@ -465,11 +630,12 @@ public class RoomManager {
         if (canHu(p, -1)) {
             acts.add(Action.huSelfDraw(p.lastDrawn));
         }
+        boolean reported = config.hainan && isReported(p.seat);
         for (int t = 0; t < 34; t++) {
             if (p.count(t) == 4) {
                 acts.add(Action.anGang(t));
             }
-            if (p.count(t) >= 1 && hasPengOf(p, t)) {
+            if (!reported && p.count(t) >= 1 && hasPengOf(p, t)) {
                 acts.add(Action.buGang(t));
             }
         }
@@ -490,9 +656,22 @@ public class RoomManager {
      * 判胡只看“暗牌”：吃/碰/杠已固定成组，不再折回 14 张一起重拆。
      * 暗牌（含摸/吃到的那张）张数 = 14 - 3×副露数，即 14/11/8/5/2，
      * 交给按张数查表的 canHuConcealed。
+     *
+     * <p>海南规则下再加“有番门禁”：结构合法且满足任一有番条件才能胡。
+     * extraTile<0 视为自摸（自摸本身即有番），否则为吃弃/点炮/抢杠候选。</p>
      */
     private boolean canHu(Player p, int extraTile) {
-        return HuLib.canHuConcealed(buildConcealedHand(p, extraTile));
+        return canHuWin(p, extraTile, extraTile < 0, false);
+    }
+
+    private boolean canHuWin(Player p, int extraTile, boolean selfDraw, boolean qiangGang) {
+        int[] concealed = buildConcealedHand(p, extraTile);
+        if (!config.hainan) {
+            return HuLib.canHuConcealed(concealed);
+        }
+        RuleEnv env = new RuleEnv(concealed, p.melds, p.flowers,
+                p.seat.stepsAfter(config.dealer), config.roundWindIdx, selfDraw, qiangGang);
+        return HainanFan.legalAndHasFan(env);
     }
 
     private int[] buildConcealedHand(Player p, int extraTile) {
@@ -640,6 +819,10 @@ public class RoomManager {
                         , a.targetTile, a.targetTile, a.targetTile}, null));
                 break;
             case BU_GANG:
+                // 海南规则：补杠（碰后摸到第 4 张加杠）可被抢杠胡；有人抢则此杠作废
+                if (config.hainan && tryQiangGang(p, a.targetTile)) {
+                    return;
+                }
                 p.remove(a.targetTile, 1);
                 for (int i = 0; i < p.melds.size(); i++) {
                     Meld m = p.melds.get(i);
@@ -658,6 +841,7 @@ public class RoomManager {
 
     private void addMeld(Player p, Meld m) {
         p.melds.add(m);
+        anyMeldThisHand = true;
         listener.onMeld(p.seat, m);
     }
 
@@ -680,13 +864,74 @@ public class RoomManager {
         Collections.sort(hand);
         // 副露（杠按 4 张，保持原样）
         List<Meld> melds = new ArrayList<Meld>(p.melds);
-        result = RoundResult.win(p.seat, selfDraw, winTile, from, res, hand, melds);
+        result = RoundResult.winFull(p.seat, selfDraw, selfDraw && lastDrawKongFlower,
+                config.hainan && selfDraw && totalDiscards == 0, reportMode[p.seat.ordinal()],
+                winTile, from, res, hand, melds);
         listener.onHu(p.seat, res, selfDraw, winTile, from);
+    }
+
+    /** 补杠被抢：从离杠家最近者起逐个询问能否胡；有人胡即结束本把。 */
+    private boolean tryQiangGang(Player ganger, int tile) {
+        List<Seat> order = new ArrayList<Seat>();
+        for (Seat s : Seat.values()) {
+            if (s == ganger.seat) {
+                continue;
+            }
+            if (canHuWin(players.get(s), tile, false, true)) {
+                order.add(s);
+            }
+        }
+        if (order.isEmpty()) {
+            return false;
+        }
+        Collections.sort(order, new Comparator<Seat>() {
+            public int compare(Seat a, Seat b) {
+                return a.stepsAfter(ganger.seat) - b.stepsAfter(ganger.seat);
+            }
+        });
+        for (Seat s : order) {
+            Player q = players.get(s);
+            List<Action> acts = new ArrayList<Action>();
+            acts.add(Action.hu(tile, ganger.seat));
+            Action chosen = requestAction(q, tile, acts);
+            if (chosen != null && chosen.type == Action.Type.HU) {
+                qiangGangWin(q, ganger, tile);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void qiangGangWin(Player winner, Player ganger, int tile) {
+        int[] cnt = buildVirtualHand(winner, tile);
+        HuResult res = HuLib.checkHu(cnt);
+        roundOver = true;
+        List<Integer> hand = new ArrayList<Integer>(winner.hand);
+        hand.add(tile);
+        Collections.sort(hand);
+        List<Meld> melds = new ArrayList<Meld>(winner.melds);
+        result = RoundResult.qiangWinFull(winner.seat, tile, ganger.seat, false,
+                reportMode[winner.seat.ordinal()], res, hand, melds);
+        listener.onHu(winner.seat, res, false, tile, ganger.seat);
     }
 
     // ==================== 决策请求（含超时） ====================
 
     private int requestDiscard(Player p) {
+        // 海南：已报听 → 不可换牌，自动打出刚摸那张；机器人若到报听窗口且丢刚摸那张仍听 → 自动报听
+        if (config.hainan) {
+            int cur = reportMode[p.seat.ordinal()];
+            if (cur != 0) {
+                return (p.lastDrawn >= 0 && p.hand.contains(p.lastDrawn)) ? p.lastDrawn : autoDiscard(p);
+            }
+            if (p.controller.isAutoReport() && readyAfterDrop(p) && reportWindow(p.seat) != 0) {
+                doReport(p.seat, reportWindow(p.seat));
+                return (p.lastDrawn >= 0 && p.hand.contains(p.lastDrawn)) ? p.lastDrawn : autoDiscard(p);
+            }
+        }
+        final boolean canReport = config.hainan && reportMode[p.seat.ordinal()] == 0
+                && readyAfterDrop(p) && reportWindow(p.seat) != 0 && !p.controller.isAutoReport();
+        p.controller.prepareDiscard(canReport);
         final int forcedTile = autoDiscard(p);
         listener.onTurnStart(p.seat, "discard", config.discardTimeoutMs);
         Integer chosen = prompt(p.seat, "出牌", config.discardTimeoutMs,
@@ -703,8 +948,17 @@ public class RoomManager {
                             public void pass() {
                                 reply.accept(null);
                             }
+
+                            public void report() {
+                                reply.accept(REPORT_TILE);
+                            }
                         }),
                 forcedTile);
+        if (chosen != null && chosen == REPORT_TILE && config.hainan && reportMode[p.seat.ordinal()] == 0
+                && readyAfterDrop(p) && reportWindow(p.seat) != 0) {
+            doReport(p.seat, reportWindow(p.seat));
+            return (p.lastDrawn >= 0 && p.hand.contains(p.lastDrawn)) ? p.lastDrawn : forcedTile;
+        }
         return (chosen != null && p.hand.contains(chosen)) ? chosen : forcedTile;
     }
 

@@ -1,0 +1,113 @@
+package hainanjong.rules;
+
+import hainanjong.game.RoundResult;
+import hainanjong.game.Seat;
+
+/**
+ * 海南规则“坐庄/荒庄/令/底分”的房间级推进状态机。
+ *
+ * <ul>
+ *   <li>首局庄随机；庄胡牌或流局(荒庄) → 连庄，底分 +1，令不变；</li>
+ *   <li>非庄胡 → 下庄：新庄=原庄下家，底分重置为房间设定值；</li>
+ *   <li>“令”跟“首局庄第 2/3/4 次重新上庄”换南/西/北（连庄不推进）；</li>
+ *   <li>一轮=打满四风：首局庄完成第 4 庄（第 4 次上庄那一段也下庄）即结束。</li>
+ * </ul>
+ */
+public final class DealerFlow {
+
+    /** 底分累加步长（每连一庄 +1）。 */
+    public static final int BOTTOM_STEP = 1;
+
+    private final HainanConfig cfg;
+    private final Seat firstDealer;
+
+    public Seat dealer;       // 当前庄（本把）
+    public int bottom;        // 本把的庄底分
+    public int windIdx;       // 本把令 0东 1南 2西 3北
+    public int handNo;        // 从 1 计的把数（显示用）
+    public boolean finished;  // 是否已打满四风
+
+    private int firstDealerBegins; // 首局庄已“开始坐庄”的次数
+    private int handsPlayed;
+
+    public DealerFlow(HainanConfig cfg, Seat firstDealer) {
+        this.cfg = cfg;
+        this.firstDealer = firstDealer;
+        this.dealer = firstDealer;
+        this.bottom = cfg.basePoint;
+        this.windIdx = 0;            // 东风令
+        this.handNo = 1;
+        this.finished = false;
+        this.firstDealerBegins = 1;  // 首把即首局庄第一次坐庄
+        this.handsPlayed = 0;
+    }
+
+    public int windIdx() {
+        return windIdx;
+    }
+
+    public static String windName(int idx) {
+        return new String[]{"东", "南", "西", "北"}[idx & 3];
+    }
+
+    /** 一局结束后推进状态；返回后 dealer/bottom/windIdx 表示下一把。 */
+    public void afterRound(RoundResult r) {
+        handsPlayed++;
+        handNo++;
+        boolean dealerWon = !r.isDraw && r.winner == dealer;
+        if (dealerWon || r.isDraw) {
+            // 连庄：底分 +1，令不变（荒庄/庄胡都连庄）
+            bottom += BOTTOM_STEP;
+            if (handsPlayed > MAX_HANDS) {
+                finished = true; // 防御性兜底，正常不会触发
+            }
+            return;
+        }
+        // 下庄：若当前正是首局庄第 4 庄且在结束 → 打满四风
+        if (dealer == firstDealer && firstDealerBegins >= 4) {
+            finished = true;
+        }
+        dealer = dealer.next();
+        bottom = cfg.basePoint; // 重置底分
+        if (dealer == firstDealer) {
+            // 首局庄重新上庄：换令（连庄期间已排除），最多到北
+            firstDealerBegins++;
+            if (windIdx < 3) {
+                windIdx++;
+            }
+        }
+        if (handsPlayed > MAX_HANDS) {
+            finished = true;
+        }
+    }
+
+    /** 防御上限（正常打满四风远小于此）。 */
+    public static final int MAX_HANDS = 400;
+
+    // ==================== 快照 / 恢复 ====================
+
+    public Seat firstDealer() {
+        return firstDealer;
+    }
+
+    public int begins() {
+        return firstDealerBegins;
+    }
+
+    public int handsPlayed() {
+        return handsPlayed;
+    }
+
+    /** 从存档重建（服务重启续跑用）。 */
+    public static DealerFlow restore(HainanConfig cfg, Seat first, Seat dealer, int bottom,
+                                     int windIdx, int handNo, int begins, int handsPlayed) {
+        DealerFlow f = new DealerFlow(cfg, first);
+        f.dealer = dealer;
+        f.bottom = bottom;
+        f.windIdx = windIdx & 3;
+        f.handNo = Math.max(1, handNo);
+        f.firstDealerBegins = Math.max(1, begins);
+        f.handsPlayed = Math.max(0, handsPlayed);
+        return f;
+    }
+}

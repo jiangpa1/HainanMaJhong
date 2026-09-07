@@ -24,4 +24,10 @@ public interface Responder {
      * 放弃/过。
      */
     void pass();
+
+    /**
+     * 报听（海南：天听/地听）。仅出牌提示有效；表示“我选择报听并打出刚摸的那张”。
+     */
+    default void report() {
+    }
 }
