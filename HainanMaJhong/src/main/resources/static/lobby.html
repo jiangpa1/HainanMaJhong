@@ -268,13 +268,17 @@
     position: fixed; inset: 0; z-index: 1100;
     background: rgba(0,0,0,.55);
     backdrop-filter: blur(5px);
-    display: none; align-items: center; justify-content: center;
-    padding: 16px;
+    display: none; align-items: flex-start; justify-content: center;
+    padding: 12px;
+    overflow-y: auto;
   }
   .create-overlay.open { display: flex; }
   .create-dialog {
     width: min(560px, 96vw);
-    max-height: min(90vh, 820px);
+    /* 虚拟横屏(#game-app 被旋转)下，层内可视高度≈屏幕短边：以 vh/vw 较小者为上限 */
+    max-height: min(88vh, 92vw, 820px);
+    margin: auto;
+    flex: 0 0 auto;
     display: flex; flex-direction: column;
     overflow: hidden;
     background:
@@ -358,12 +362,13 @@
   .help-overlay {
     position: fixed; inset: 0; z-index: 1250;
     background: rgba(0,0,0,.55); backdrop-filter: blur(5px);
-    display: none; align-items: center; justify-content: center;
-    padding: 16px;
+    display: none; align-items: flex-start; justify-content: center;
+    padding: 12px; overflow-y: auto;
   }
   .help-overlay.open { display: flex; }
   .help-dialog {
-    width: min(560px, 96vw); max-height: min(84vh, 720px);
+    width: min(560px, 96vw); max-height: min(82vh, 92vw, 720px);
+    margin: auto; flex: 0 0 auto;
     display: flex; flex-direction: column; overflow: hidden;
     background: linear-gradient(180deg, rgba(30,70,55,.985), rgba(12,38,28,.985));
     border: 1px solid rgba(212,175,55,.6); border-radius: 16px;
@@ -384,6 +389,13 @@
   .help-body ul { margin: 4px 0 10px; padding-left: 20px; }
   .help-body li { margin: 4px 0; }
   .ver { font-size: 16px; font-weight: 900; color: #fff6cf; letter-spacing: 1px; }
+
+  /* ===== 底部横屏提示 ===== */
+  .orient-hint {
+    position: fixed; left: 0; right: 0; bottom: 5px; z-index: 5;
+    text-align: center; font-size: 11px; letter-spacing: 1px;
+    color: rgba(242,229,200,.6); pointer-events: none;
+  }
 </style>
 </head>
 <body>
@@ -395,6 +407,7 @@
     <span class="nick" id="nick">海南雀神</span>
   </div>
   <div class="tb-right">
+    <button class="help-btn" id="settings-top-btn" title="设置" onclick="openSettings()">⚙</button>
     <button class="help-btn" id="help-btn" title="关于">?</button>
   </div>
 </header>
@@ -411,9 +424,9 @@
 <!-- 底部功能区 -->
 <footer class="dock">
   <a class="icon-btn" href="/download/app" style="text-decoration:none"><span class="icon">⬇</span>下载APP</a>
-  <button class="icon-btn" onclick="openSettings()"><span class="icon">⚙</span>设置</button>
   <button class="icon-btn" onclick="location.href='records.html'"><span class="icon">🏆</span>战绩查询</button>
 </footer>
+<div class="orient-hint">打开手机自动旋转，横屏以获得最佳游戏体验</div>
 
 <button class="return-room" id="return-room">↩ 返回房间</button>
 
@@ -445,6 +458,15 @@
         <li>创建房间规则弹窗：手机上可滚动、按钮常驻可见</li>
         <li>网页打包适配：禁止缩放、返回键优化、页面不缓存（改后即时生效）</li>
         <li>首页与大厅提供“下载 APP”入口</li>
+      </ul>
+      <h3>本次小更新</h3>
+      <ul>
+        <li>结算口径优化：庄相关笔按“连庄后的当前底分”，闲与闲之间按“房间初始底分”，点炮者追加按“初始底分”</li>
+        <li>登录页新增“记住用户名和密码”，下次自动回填</li>
+        <li>大厅“设置”按钮移到右上角，与“关于”并列</li>
+        <li>大厅底部新增横屏体验提示</li>
+        <li>局内聊天气泡放大为两倍，更醒目</li>
+        <li>创建房间规则框在手机竖屏下也完整可见、可滚动</li>
       </ul>
       <h3>体验提示</h3>
       <ul>
