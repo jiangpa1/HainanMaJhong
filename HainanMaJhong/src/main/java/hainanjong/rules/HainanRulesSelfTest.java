@@ -192,6 +192,20 @@ public class HainanRulesSelfTest {
         check("D 下庄给SOUTH", flow.dealer == Seat.SOUTH && flow.bottom == 1 && flow.windIdx == 0);
         flow.afterRound(hainanjong.game.RoundResult.win(Seat.SOUTH, true, false, -1, null, null, null, null));
         check("D 庄自摸连庄底分+1", flow.dealer == Seat.SOUTH && flow.bottom == 2 && flow.windIdx == 0);
+
+        // E) 乘算底分：初始底分 2 → 连庄后 4/6/8（=底分×(连庄次数+1)），下庄回 2
+        HainanConfig cfg2 = HainanConfig.defaultConfig();
+        cfg2.basePoint = 2;
+        DealerFlow f2 = new DealerFlow(cfg2, Seat.EAST);
+        check("E 首把底分=2", f2.bottom == 2 && f2.consecutiveKeeps() == 0);
+        f2.afterRound(hainanjong.game.RoundResult.win(Seat.SOUTH, false, false, 0, Seat.EAST, null, null, null));
+        check("E 下庄给SOUTH 底分回2", f2.dealer == Seat.SOUTH && f2.bottom == 2);
+        f2.afterRound(hainanjong.game.RoundResult.win(Seat.SOUTH, true, false, -1, null, null, null, null));
+        check("E 连庄1 底分4", f2.bottom == 4 && f2.consecutiveKeeps() == 1);
+        f2.afterRound(hainanjong.game.RoundResult.win(Seat.SOUTH, true, false, -1, null, null, null, null));
+        check("E 连庄2 底分6", f2.bottom == 6 && f2.consecutiveKeeps() == 2);
+        f2.afterRound(hainanjong.game.RoundResult.draw());
+        check("E 流局连庄 底分8", f2.dealer == Seat.SOUTH && f2.bottom == 8 && f2.consecutiveKeeps() == 3);
     }
 
     // ==================== 四风整局仿真（应总能结束且令推进到北） ====================

@@ -144,6 +144,17 @@ public final class HainanScore {
      *   <li>跟牌：发生即付（庄输另三家各底分），流局也算。</li>
      * </ul>
      */
+    /** 杠单位分：明杠/补杠/暗杠（房间可设）。 */
+    private static int gangUnit(HainanConfig cfg, Meld.Type t) {
+        if (t == Meld.Type.BU_GANG) {
+            return cfg.gangBu;
+        }
+        if (t == Meld.Type.AN_GANG) {
+            return cfg.gangAn;
+        }
+        return cfg.gangMing;
+    }
+
     public static Settlement settleRound(RoundResult r, Seat dealer, int bottom, HainanConfig cfg,
                                          Map<Seat, List<Integer>> flowers, Map<Seat, List<Meld>> melds,
                                          int wallLeft, boolean genChain, Seat dealerFirstGangSeat) {
@@ -255,7 +266,7 @@ public final class HainanScore {
                 if (m.type != Meld.Type.GANG && m.type != Meld.Type.BU_GANG && m.type != Meld.Type.AN_GANG) {
                     continue;
                 }
-                int unit = m.type == Meld.Type.AN_GANG ? 2 : 1;
+                int unit = gangUnit(cfg, m.type);
                 boolean special = false;
                 if (dealerFirstGangSeat != null && g == dealerFirstGangSeat
                         && m.type == Meld.Type.GANG && !specialHandled) {

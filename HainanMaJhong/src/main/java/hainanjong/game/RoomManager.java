@@ -58,6 +58,70 @@ public class RoomManager {
     // 海南：天胡/报听
     private int totalDiscards;          // 本把全场已出牌张数
     private boolean anyMeldThisHand;    // 本把是否出现过吃碰杠（地听窗口会关闭）
+
+    /** 海南“吃后禁打”：刚吃完后紧接着的这一次出牌不可打出的牌面值（非海南或普通出牌为 null）。 */
+    private List<Integer> eatBan;
+
+    // ==================== 吃后禁打（海南） ====================
+
+    /** 用 seq(含被吃牌 eaten) 吃时，自己两张手牌可“补成顺子”的牌值集合。例：5、6吃7 → {4,7}；5、7吃6 → {6}。 */
+    private static List<Integer> chiBanValues(int[] seq, int eaten) {
+        int a = -1, b = -1;
+        for (int t : seq) {
+            if (t == eaten) {
+                continue;
+            }
+            if (a < 0) {
+                a = t;
+            } else {
+                b = t;
+            }
+        }
+        if (a > b) {
+            int tmp = a;
+            a = b;
+            b = tmp;
+        }
+        List<Integer> ban = new ArrayList<Integer>();
+        if (b == a + 1) {
+            ban.add(a - 1); // 顺子低端补张
+            ban.add(b + 1); // 顺子高端补张
+        } else if (b == a + 2) {
+            ban.add(a + 1); // 嵌张的中间那张
+        }
+        return ban;
+    }
+
+    /** 该吃法吃完(去掉自己两张)后手里是否还有可出的牌；没有(全禁)则本次不可吃。 */
+    private boolean chiCanDiscard(Player p, int[] seq, int eaten) {
+        int[] c = new int[HuLib.TOTAL_TILES];
+        for (int t : p.hand) {
+            c[t]++;
+        }
+        for (int t : seq) {
+            if (t != eaten) {
+                c[t]--;
+            }
+        }
+        List<Integer> ban = chiBanValues(seq, eaten);
+        for (int t = 0; t < HuLib.TOTAL_TILES; t++) {
+            if (c[t] > 0 && !ban.contains(t)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 吃完(自己两张已移除)后手里仍然存在的禁打牌（本次出牌限制）。 */
+    private List<Integer> presentEatBan(Player p, int[] seq, int eaten) {
+        List<Integer> out = new ArrayList<Integer>();
+        for (int t : chiBanValues(seq, eaten)) {
+            if (p.count(t) > 0) {
+                out.add(t);
+            }
+        }
+        return out;
+    }
     private final int[] reportMode = new int[4]; // 各座位是否报听：0 无 / 1 天听 / 2 地听
 
     private ScheduledExecutorService scheduler;
@@ -443,6 +507,7 @@ public class RoomManager {
 
     private int discard(Player p) {
         int tile = requestDiscard(p);
+        eatBan = null; // 吃后禁打只作用于这一手，出牌后即解除
         p.remove(tile, 1);
         discardPile.add(tile);
         playerDiscards.get(p.seat).add(tile);
@@ -613,6 +678,10 @@ public class RoomManager {
                     }
                 }
                 if (ok) {
+                    // 海南吃后禁打：吃完若无可出的牌（全禁）则本次不提供这种吃法
+                    if (config.hainan && !chiCanDiscard(q, seq, tile)) {
+                        continue;
+                    }
                     acts.add(Action.chi(seq, tile, discarder));
                 }
             }
@@ -671,7 +740,8 @@ public class RoomManager {
         }
         RuleEnv env = new RuleEnv(concealed, p.melds, p.flowers,
                 p.seat.stepsAfter(config.dealer), config.roundWindIdx, selfDraw, qiangGang);
-        return HainanFan.legalAndHasFan(env);
+        // 有番门禁：开（默认）=结构合法且有番才能胡；关=无番，结构合法即可胡
+        return config.fanGate ? HainanFan.legalAndHasFan(env) : HainanFan.canHuConcealed(env);
     }
 
     private int[] buildConcealedHand(Player p, int extraTile) {
@@ -802,6 +872,7 @@ public class RoomManager {
                 }
                 addMeld(p, new Meld(Meld.Type.CHI, a.tiles.clone(), discarder.seat));
                 popDiscard();
+                eatBan = config.hainan ? presentEatBan(p, a.tiles, tile) : null; // 吃后禁打：仅限吃完这次出牌
                 break;
             default:
                 break;
@@ -931,11 +1002,13 @@ public class RoomManager {
         }
         final boolean canReport = config.hainan && reportMode[p.seat.ordinal()] == 0
                 && readyAfterDrop(p) && reportWindow(p.seat) != 0 && !p.controller.isAutoReport();
+        final List<Integer> ban = (eatBan == null || eatBan.isEmpty()) ? null : new ArrayList<Integer>(eatBan);
         p.controller.prepareDiscard(canReport);
-        final int forcedTile = autoDiscard(p);
+        final int forcedTile = ban == null ? autoDiscard(p) : autoDiscard(p, ban);
         listener.onTurnStart(p.seat, "discard", config.discardTimeoutMs);
         Integer chosen = prompt(p.seat, "出牌", config.discardTimeoutMs,
                 reply -> p.controller.onDiscardTurn(p.seat, new ArrayList<Integer>(p.hand), p.lastDrawn,
+                        ban == null ? new ArrayList<Integer>() : ban,
                         new Responder() {
                             public void discard(int k) {
                                 reply.accept(k);
@@ -959,7 +1032,8 @@ public class RoomManager {
             doReport(p.seat, reportWindow(p.seat));
             return (p.lastDrawn >= 0 && p.hand.contains(p.lastDrawn)) ? p.lastDrawn : forcedTile;
         }
-        return (chosen != null && p.hand.contains(chosen)) ? chosen : forcedTile;
+        boolean legal = chosen != null && p.hand.contains(chosen) && (ban == null || !ban.contains(chosen));
+        return legal ? chosen : forcedTile;
     }
 
     private Action requestAction(Player p, int tile, List<Action> opts) {
@@ -1004,14 +1078,22 @@ public class RoomManager {
      * 强制出牌时选择的牌：优先打出刚摸到的那张，否则按孤张（字牌→孤张数牌→任意单张）→第一张。
      */
     private int autoDiscard(Player p) {
-        if (p.lastDrawn >= 0 && p.hand.contains(p.lastDrawn)) {
+        return autoDiscard(p, null);
+    }
+
+    private int autoDiscard(Player p, List<Integer> ban) {
+        List<Integer> h = p.hand;
+        if (p.lastDrawn >= 0 && h.contains(p.lastDrawn) && !blocked(p.lastDrawn, ban)) {
             return p.lastDrawn;
         }
-        List<Integer> h = p.hand;
-        for (int t : h) if (t >= 27 && p.count(t) == 1) return t;
-        for (int t : h) if (t < 27 && p.count(t) == 1 && isolated(h, t)) return t;
-        for (int t : h) if (p.count(t) == 1) return t;
-        return h.get(0);
+        for (int t : h) if (!blocked(t, ban) && t >= 27 && p.count(t) == 1) return t;
+        for (int t : h) if (!blocked(t, ban) && t < 27 && p.count(t) == 1 && isolated(h, t)) return t;
+        for (int t : h) if (!blocked(t, ban) && p.count(t) == 1) return t;
+        return h.get(0); // 全被禁理论上不会发生（全禁的吃法已不提供）
+    }
+
+    private static boolean blocked(int t, List<Integer> ban) {
+        return ban != null && ban.contains(t);
     }
 
     private static boolean isolated(List<Integer> h, int t) {

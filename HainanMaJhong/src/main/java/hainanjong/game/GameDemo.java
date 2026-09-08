@@ -100,12 +100,12 @@ public class GameDemo {
         }
 
         @Override
-        public void onDiscardTurn(Seat seat, List<Integer> hand, int drawnTile, Responder r) {
+        public void onDiscardTurn(Seat seat, List<Integer> hand, int drawnTile, List<Integer> banned, Responder r) {
             if (slowOnce) {
                 slowOnce = false;
                 return; // 不应答 → 超时强制出牌
             }
-            inner.onDiscardTurn(seat, hand, drawnTile, r);
+            inner.onDiscardTurn(seat, hand, drawnTile, banned, r);
         }
 
         @Override

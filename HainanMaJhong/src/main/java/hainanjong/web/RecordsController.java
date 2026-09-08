@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -37,10 +38,14 @@ public class RecordsController {
     @GetMapping
     public Map<String, Object> list(@RequestParam long userId) {
         List<Map<String, Object>> sessions = mysql.listSessionsForUser(userId);
+        Map<Long, Map<Long, int[]>> totalsBySession = totalsOf(sessions);
         List<Map<String, Object>> records = new ArrayList<Map<String, Object>>();
         for (Map<String, Object> s : sessions) {
             long sessionId = ((Number) s.get("sessionId")).longValue();
-            Map<Long, int[]> totals = mysql.sessionPlayerTotals(sessionId);
+            Map<Long, int[]> totals = totalsBySession.get(sessionId);
+            if (totals == null) {
+                totals = Collections.emptyMap();
+            }
             int myTotal = totals.containsKey(userId) ? totals.get(userId)[1] : 0;
             int rank = computeRank(totals, userId);
 
@@ -80,9 +85,15 @@ public class RecordsController {
     }
 
     private Map<String, Object> buildDetail(long sessionId, long userId) {
-        Map<Long, int[]> totals = mysql.sessionPlayerTotals(sessionId);
-        List<Map<String, Object>> rawRounds = mysql.sessionRounds(sessionId, userId);
         List<Map<String, Object>> allRows = mysql.sessionRoundsAll(sessionId);
+        Map<Long, Map<Long, int[]>> bySession =
+                mysql.sessionPlayerTotalsOfSessions(Collections.singletonList(sessionId));
+        Map<Long, int[]> totals = bySession.get(sessionId);
+        if (totals == null) {
+            totals = Collections.emptyMap();
+        }
+        // 本次请求内昵称缓存：每场至多 4 个真实玩家，避免逐行重复查 user
+        Map<Long, String> nicks = new HashMap<Long, String>();
 
         // 玩家总分明细
         List<Map<String, Object>> players = new ArrayList<Map<String, Object>>();
@@ -92,24 +103,25 @@ public class RecordsController {
             p.put("seat", e.getValue()[0]);
             p.put("total", e.getValue()[1]);
             p.put("isMe", e.getKey() == userId);
-            p.put("nickname", nickname(e.getKey()));
+            p.put("nickname", nick(e.getKey(), nicks));
             players.add(p);
         }
 
-        // 概览（当前用户视角）
+        // 概览（当前用户视角）：直接从全局明细推导，省去单独按用户逐局查询
         int winCount = 0;
         int highestFan = 0;
         String highestFanDesc = "";
-        for (Map<String, Object> r : rawRounds) {
-            boolean isWinner = toBool(r.get("isWinner"));
+        for (Map<String, Object> r : allRows) {
+            Object uidObj = r.get("userId");
+            if (uidObj == null || ((Number) uidObj).longValue() != userId || !toBool(r.get("isWinner"))) {
+                continue;
+            }
+            winCount++;
             int totalFan = r.get("totalFan") == null ? 0 : ((Number) r.get("totalFan")).intValue();
-            List<String> fanTypes = parseFanTypes((String) r.get("fanInfo"));
-            if (isWinner) {
-                winCount++;
-                if (totalFan > highestFan) {
-                    highestFan = totalFan;
-                    highestFanDesc = fanTypes.isEmpty() ? "平胡" : String.join("、", fanTypes);
-                }
+            if (totalFan > highestFan) {
+                highestFan = totalFan;
+                List<String> fanTypes = parseFanTypes((String) r.get("fanInfo"));
+                highestFanDesc = fanTypes.isEmpty() ? "平胡" : String.join("、", fanTypes);
             }
         }
 
@@ -139,7 +151,7 @@ public class RecordsController {
                 Long pid = ((Number) row.get("userId")).longValue();
                 Map<String, Object> pp = new HashMap<String, Object>();
                 pp.put("userId", pid);
-                pp.put("nickname", nickname(pid));
+                pp.put("nickname", nick(pid, nicks));
                 pp.put("seat", ((Number) row.get("seat")).intValue());
                 pp.put("scoreChange", row.get("scoreChange") == null ? 0 : ((Number) row.get("scoreChange")).intValue());
                 pp.put("isWinner", toBool(row.get("isWinner")));
@@ -153,13 +165,39 @@ public class RecordsController {
             round.put("isDraw", toBool(first.get("isDraw")));
             round.put("winType", first.get("winType") == null ? 2 : ((Number) first.get("winType")).intValue());
             round.put("winnerId", winnerId);
-            round.put("winner", winnerId == null ? null : nickname(winnerId));
+            round.put("winner", winnerId == null ? null : nick(winnerId, nicks));
             round.put("loserId", loserId);
+            round.put("loser", loserId == null ? null : nick(loserId, nicks));
             round.put("winTile", first.get("winTile") == null ? null : ((Number) first.get("winTile")).intValue());
             round.put("fanTypes", fanTypes);
             round.put("winHand", winHandObj.get("hand"));
             round.put("winMelds", winHandObj.get("melds"));
             round.put("participants", participants);
+
+            // 本把 庄 与 令（战绩二级明细展示）
+            Object dsObj = first.get("dealerName");
+            round.put("dealerSeat", dsObj == null ? null : String.valueOf(dsObj));
+            round.put("windIdx", first.get("windIdx") == null ? null : ((Number) first.get("windIdx")).intValue());
+            String dealerNick = null;
+            if (dsObj != null) {
+                String[] order = {"EAST", "SOUTH", "WEST", "NORTH"};
+                int ord = -1;
+                for (int i = 0; i < order.length; i++) {
+                    if (order[i].equals(String.valueOf(dsObj))) {
+                        ord = i;
+                        break;
+                    }
+                }
+                if (ord >= 0) {
+                    for (Map<String, Object> pp : participants) {
+                        if (((Number) pp.get("seat")).intValue() == ord) {
+                            dealerNick = (String) pp.get("nickname");
+                            break;
+                        }
+                    }
+                }
+            }
+            round.put("dealerNickname", dealerNick);
             rounds.add(round);
         }
 
@@ -226,6 +264,20 @@ public class RecordsController {
             }
         }
         return rank;
+    }
+
+    /** 批量取一批 session 的玩家总分表（一次查询替代逐场聚合）。 */
+    private Map<Long, Map<Long, int[]>> totalsOf(List<Map<String, Object>> sessions) {
+        List<Long> ids = new ArrayList<Long>(sessions.size());
+        for (Map<String, Object> s : sessions) {
+            ids.add(((Number) s.get("sessionId")).longValue());
+        }
+        return mysql.sessionPlayerTotalsOfSessions(ids);
+    }
+
+    /** 带缓存的昵称查询：同一 userId 本次请求只查一次库。 */
+    private String nick(long userId, Map<Long, String> cache) {
+        return cache.computeIfAbsent(userId, k -> nickname(k));
     }
 
     /** 解析玩家昵称：机器人用固定名，游客用「游客」，真实用户查 user 表。 */
