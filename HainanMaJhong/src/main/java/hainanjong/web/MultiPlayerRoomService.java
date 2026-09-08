@@ -61,7 +61,6 @@ public class MultiPlayerRoomService {
     private final ObjectMapper mapper = new ObjectMapper();
     private final MysqlService mysql;
     private final RedisService redis;
-    private final WebSocketGameService solo;
     private final SecureRandom random = new SecureRandom();
 
     private final Map<String, Room> roomsByCode = new ConcurrentHashMap<String, Room>();
@@ -71,10 +70,9 @@ public class MultiPlayerRoomService {
     private final Map<String, String> gameCodeOfSession = new ConcurrentHashMap<String, String>();
     private final Map<String, Seat> gameSeatOfSession = new ConcurrentHashMap<String, Seat>();
 
-    public MultiPlayerRoomService(MysqlService mysql, RedisService redis, WebSocketGameService solo) {
+    public MultiPlayerRoomService(MysqlService mysql, RedisService redis) {
         this.mysql = mysql;
         this.redis = redis;
-        this.solo = solo;
     }
 
     public enum State { WAITING, PLAYING, BETWEEN }
@@ -104,8 +102,8 @@ public class MultiPlayerRoomService {
         private volatile PlayerController delegate;
         SwitchingController(PlayerController initial) { this.delegate = initial; }
         public void setDelegate(PlayerController d) { this.delegate = d; }
-        @Override public void onDiscardTurn(Seat seat, List<Integer> hand, int drawnTile, Responder r) {
-            delegate.onDiscardTurn(seat, hand, drawnTile, r);
+        @Override public void onDiscardTurn(Seat seat, List<Integer> hand, int drawnTile, List<Integer> banned, Responder r) {
+            delegate.onDiscardTurn(seat, hand, drawnTile, banned, r);
         }
         @Override public void onActionChance(Seat seat, int tile, List<Action> options, Responder r) {
             delegate.onActionChance(seat, tile, options, r);
@@ -208,6 +206,10 @@ public class MultiPlayerRoomService {
             } else if ("joinRoom".equals(type)) {
                 String code = msg.get("code") == null ? "" : String.valueOf(msg.get("code")).trim();
                 joinRoom(session, userId == null ? 0L : userId, code);
+            } else if ("fillBots".equals(type)) {
+                fillBotsFor(userId == null ? 0L : userId);
+            } else if ("startNow".equals(type)) {
+                startNowFor(userId == null ? 0L : userId);
             } else if ("leaveRoom".equals(type)) {
                 leave(userId == null ? 0L : userId);
             } else {
@@ -288,6 +290,15 @@ public class MultiPlayerRoomService {
                     m.human.pass(reqId);
                 } else if ("baoting".equals(type)) {
                     m.human.baoTing(reqId);
+                } else if ("chat".equals(type)) {
+                    String text = msg.get("text") == null ? "" : String.valueOf(msg.get("text")).trim();
+                    if (!text.isEmpty() && text.length() <= 80) {
+                        Map<String, Object> cm = new HashMap<String, Object>();
+                        cm.put("type", "chat");
+                        cm.put("seat", m.seat.name());
+                        cm.put("text", text);
+                        broadcastGame(room, cm); // 全桌都能看到
+                    }
                 } else if ("rematch".equals(type)) {
                     onRematch(room, userId);
                 } else if ("leaveRoom".equals(type) || "quit".equals(type)) {
@@ -337,10 +348,10 @@ public class MultiPlayerRoomService {
         disband(room, "有成员离开，房间解散");
     }
 
-    /** 是否已没有任何真人在线（四人全离线/未连入）。 */
+    /** 是否已没有任何真人在线（四人全离线/未连入；补位的机器人不计）。 */
     private boolean noHumanBound(Room room) {
         for (Member mm : room.members.values()) {
-            if (mm != null && !mm.offline && bound(mm)) {
+            if (mm != null && !isBot(mm) && !mm.offline && bound(mm)) {
                 return false;
             }
         }
@@ -428,7 +439,6 @@ public class MultiPlayerRoomService {
             sendJson(session, denied("你仍在对局房间 " + busy + " 中，请先返回房间或等对局结束"));
             return;
         }
-        solo.kickUser(userId);
         String code;
         Room room;
         synchronized (roomsByCode) {
@@ -480,7 +490,6 @@ public class MultiPlayerRoomService {
         synchronized (room) {
             Member existing = memberOf(room, userId);
             if (existing != null) {
-                solo.kickUser(userId);
                 existing.roomWs = session;
                 userOfSession.put(session.getId(), userId);
                 codeByUser.put(userId, code);
@@ -491,8 +500,8 @@ public class MultiPlayerRoomService {
                 sendJson(session, denied("对局进行中，请直接返回牌局"));
                 return;
             }
-            if (memberCount(room) >= MAX_MEMBERS) {
-                sendJson(session, denied("房间已满(4人)"));
+            if (realCount(room) >= MAX_MEMBERS) {
+                sendJson(session, denied("房间已满(4人真人)"));
                 return;
             }
             String busy = busyRoomCode(userId);
@@ -500,22 +509,28 @@ public class MultiPlayerRoomService {
                 sendJson(session, denied("你仍在对局房间 " + busy + " 中，请先返回房间或等对局结束"));
                 return;
             }
-            solo.kickUser(userId);
 
             Seat seat = nextFreeSeat(room);
+            Member displaced = null;
             if (seat == null) {
-                sendJson(session, denied("房间已满(4人)"));
-                return;
+                seat = firstBotSeat(room); // 已有人机补齐：真人加入顶替一个电脑位
+                if (seat == null) {
+                    sendJson(session, denied("房间已满(4人)"));
+                    return;
+                }
+                displaced = room.members.get(seat);
+                room.members.remove(seat);
             }
             Member m = new Member(seat, userId, nicknameOf(userId), session);
             room.members.put(seat, m);
             codeByUser.put(userId, code);
             userOfSession.put(session.getId(), userId);
             sendRoomInfo(room, null);
-            if (room.state == State.WAITING && memberCount(room) == MAX_MEMBERS) {
+            if (room.state == State.WAITING && realCount(room) == MAX_MEMBERS) {
                 startMatch(room);
             }
-            log.info("用户 {} 加入房间 {} 座位 {}", userId, code, seat);
+            log.info("用户 {} 加入房间 {} 座位 {}{}", userId, code, seat,
+                    displaced == null ? "" : "（顶替电脑）");
         }
     }
 
@@ -595,16 +610,78 @@ public class MultiPlayerRoomService {
         Map<String, Object> start = new HashMap<String, Object>();
         start.put("type", "start");
         start.put("code", room.code);
+        int real = 0;
         for (Seat s : Seat.values()) {
             Member m = room.members.get(s);
-            if (m == null) continue;
+            if (m == null || isBot(m) || m.roomWs == null) {
+                continue;
+            }
+            real++;
             start.put("seat", s.name());
             sendJson(m.roomWs, start);
         }
-        log.info("房间 {} 满 4 人，自动开局", room.code);
+        log.info("房间 {} 开局（{} 真人 + {} 电脑）", room.code, real, memberCount(room) - real);
         room.blockThread = new Thread(() -> runBlock(room), "room-bind-" + room.code);
         room.blockThread.setDaemon(true);
         room.blockThread.start();
+    }
+
+    /** 等待房房主“人机补齐”：空缺座位补入电脑，但仍停留在等待房，由房主再点“开始”开局。 */
+    private void fillBotsFor(long userId) {
+        if (userId <= 0) {
+            return;
+        }
+        String code = codeByUser.get(userId);
+        if (code == null) {
+            return;
+        }
+        Room room = roomsByCode.get(code);
+        if (room == null) {
+            return;
+        }
+        synchronized (room) {
+            if (userId != room.hostUserId || room.state != State.WAITING) {
+                return;
+            }
+            int added = 0;
+            for (Seat s : Seat.values()) {
+                if (room.members.containsKey(s)) {
+                    continue;
+                }
+                Member bot = new Member(s, botUserId(s), botNickname(s), null);
+                bot.controller.setDelegate(new BotController());
+                room.members.put(s, bot);
+                added++;
+            }
+            if (added == 0) {
+                return;
+            }
+            sendRoomInfo(room, null); // 停留在等待房：房主再点“开始”才开局
+        }
+    }
+
+    /** 等待房房主在补位后“开始对局”（真人+电脑按当前座位开局）。 */
+    private void startNowFor(long userId) {
+        if (userId <= 0) {
+            return;
+        }
+        String code = codeByUser.get(userId);
+        if (code == null) {
+            return;
+        }
+        Room room = roomsByCode.get(code);
+        if (room == null) {
+            return;
+        }
+        synchronized (room) {
+            if (userId != room.hostUserId || room.state != State.WAITING) {
+                return;
+            }
+            if (memberCount(room) < MAX_MEMBERS) {
+                return; // 还有空位：先等真人加入或“人机补齐”
+            }
+            startMatch(room);
+        }
     }
 
     private void runBlock(Room room) {
@@ -619,7 +696,7 @@ public class MultiPlayerRoomService {
         // 宽限期内没连上的座位（含房主）一律机器人托管，游戏照常开始、座位保留
         for (Seat s : Seat.values()) {
             Member m = room.members.get(s);
-            if (m != null && !bound(m)) {
+            if (m != null && !isBot(m) && !bound(m)) {
                 m.offline = true;
                 m.controller.setDelegate(new BotController());
                 log.info("房间 {} 座位 {} 玩家未连入，机器人托管本块", room.code, s);
@@ -639,14 +716,27 @@ public class MultiPlayerRoomService {
             return;
         }
         for (Member m : new ArrayList<Member>(room.members.values())) {
-            if (!bound(m)) {
+            if (!isBot(m) && !bound(m)) {
                 disband(room, "有成员离开，房间解散");
                 return;
             }
         }
         room.state = State.PLAYING;
-        log.info("房主 {} 在房间 {} 开启新一轮", userId, room.code);
-        startEngine(room, false, new EngineStart());
+        EngineStart seed = new EngineStart();
+        seed.sessionId = room.sessionId; // 沿用同一 session：战绩在同一房间下继续累加
+        seed.cfg = room.cfg;
+        for (Seat s : Seat.values()) {
+            seed.coins.put(s, room.coins.get(s) == null ? 0 : room.coins.get(s)); // 金币不清空
+        }
+        if (room.flow != null) {
+            // 新一轮（随机首庄/东风令重新起算），但把数在上一轮基础上继续，避免唯一键冲突
+            DealerFlow nf = newFlow(room);
+            nf.handNo = Math.max(1, room.flow.handNo);
+            seed.flow = nf;
+        }
+        log.info("房主 {} 在房间 {} 开启新一轮（同房间同战绩，把数从 {} 继续）",
+                userId, room.code, seed.flow == null ? 1 : seed.flow.handNo);
+        startEngine(room, false, seed);
     }
 
     private void startEngine(Room room, boolean waitBind, EngineStart seed) {
@@ -655,16 +745,11 @@ public class MultiPlayerRoomService {
         room.blockThread.start();
     }
 
-    /** 跑完一块（16 把，或从 Redis 恢复的某把续到 16 把）。 */
+    /** 跑完一轮（打满四风，或从 Redis 恢复的某把续跑）；再来一轮沿用同一 session/金币继续。 */
     private void runEngine(Room room, EngineStart seed) {
         room.stop = false;
         room.blockNo++;
         room.resumeSeed = null;
-        if (seed.coins.isEmpty()) {
-            for (Seat s : Seat.values()) {
-                seed.coins.put(s, 0);
-            }
-        }
         for (Seat s : Seat.values()) {
             room.coins.put(s, seed.coins.get(s) == null ? 0 : seed.coins.get(s));
         }
@@ -715,10 +800,15 @@ public class MultiPlayerRoomService {
                 Map<Seat, PlayerController> controllers = new EnumMap<Seat, PlayerController>(Seat.class);
                 for (Seat s : Seat.values()) {
                     Member m = room.members.get(s);
+                    if (m != null && isBot(m)) {
+                        // 补位电脑：引擎里始终由机器人托管（含重建/再来一轮后）
+                        m.controller.setDelegate(new BotController());
+                    }
                     controllers.put(s, m == null ? new BotController() : m.controller);
                 }
                 GameConfig config = new GameConfig(true, dealer, DISCARD_TIMEOUT_MS, ACTION_TIMEOUT_MS,
                         System.currentTimeMillis() + hand, true, 0, cfg.enabled, flow.windIdx());
+                config.fanGate = cfg.fanGate; // 有番/无番
                 RoomListener listener = new RoomListener(room);
                 RoomManager rm = new RoomManager(config, controllers, listener);
                 listener.setRoom(rm);
@@ -759,7 +849,6 @@ public class MultiPlayerRoomService {
                 if (sid > 0) {
                     try {
                         persistRound(sid, hand, r, room, delta, detailJsons);
-                        mysql.updateSessionRound(sid, hand);
                     } catch (Exception e) {
                         log.warn("保存对局数据失败：{}", e.getMessage());
                     }
@@ -780,7 +869,7 @@ public class MultiPlayerRoomService {
             }
             boolean anyOffline = false;
             for (Member m : room.members.values()) {
-                if (m != null && (!bound(m) || m.offline)) {
+                if (m != null && !isBot(m) && (!bound(m) || m.offline)) {
                     anyOffline = true;
                     break;
                 }
@@ -797,13 +886,7 @@ public class MultiPlayerRoomService {
                 stopAndClear(room);
                 return;
             }
-            try {
-                if (sid > 0) {
-                    mysql.finishSession(sid);
-                }
-            } catch (Exception e) {
-                log.warn("结束对局失败：{}", e.getMessage());
-            }
+            // 一轮打满四风结束：不结束 session/不清金币——房主可“再来一轮”，战绩与金币延续
             room.state = State.BETWEEN;
             saveRoom(room, null);
             broadcastFinish(room, false, null);
@@ -822,7 +905,9 @@ public class MultiPlayerRoomService {
             m.put("reason", reason);
         }
         for (Member mem : room.members.values()) {
-            if (mem == null) continue;
+            if (mem == null || isBot(mem) || mem.gameWs == null || !mem.gameWs.isOpen()) {
+                continue;
+            }
             m.put("isHost", mem.userId == room.hostUserId);
             sendJson(mem.gameWs, m);
         }
@@ -1059,6 +1144,7 @@ public class MultiPlayerRoomService {
             Map<String, List<Integer>> discards = new HashMap<String, List<Integer>>();
             Map<String, List<Map<String, Object>>> melds = new HashMap<String, List<Map<String, Object>>>();
             Map<String, Integer> counts = new HashMap<String, Integer>();
+            Map<String, List<Integer>> flowers = new HashMap<String, List<Integer>>();
             for (Seat s : Seat.values()) {
                 discards.put(s.name(), new ArrayList<Integer>(rm.getPlayerDiscards(s)));
                 List<Map<String, Object>> ml = new ArrayList<Map<String, Object>>();
@@ -1068,8 +1154,10 @@ public class MultiPlayerRoomService {
                         ml.add(serializeMeld(meld));
                     }
                     counts.put(s.name(), p.hand.size());
+                    flowers.put(s.name(), new ArrayList<Integer>(p.flowers));
                 } else {
                     counts.put(s.name(), 0);
+                    flowers.put(s.name(), new ArrayList<Integer>());
                 }
                 melds.put(s.name(), ml);
             }
@@ -1077,6 +1165,7 @@ public class MultiPlayerRoomService {
             board.put("type", "board");
             board.put("discards", discards);
             board.put("melds", melds);
+            board.put("flowers", flowers);
             Map<String, Object> countsMsg = new HashMap<String, Object>();
             countsMsg.put("type", "counts");
             countsMsg.put("counts", counts);
@@ -1171,6 +1260,10 @@ public class MultiPlayerRoomService {
         Long winnerId = (isDraw || r.winner == null) ? null : userIdOf(room, r.winner);
         Long loserId = (isDraw || r.selfDraw || r.from == null) ? null : userIdOf(room, r.from);
         Integer winTile = (r.winTile >= 0) ? r.winTile : null;
+        // 本把 庄 与 令（供战绩二级明细展示）
+        DealerFlow df0 = room.flow;
+        String dealerName = (df0 == null || df0.dealer == null) ? null : df0.dealer.name();
+        int windIdx = df0 == null ? 0 : df0.windIdx();
 
         String fanInfo = "{}";
         int totalFan = 0;
@@ -1198,17 +1291,20 @@ public class MultiPlayerRoomService {
             winHandJson = mapper.writeValueAsString(wh);
         }
 
-        long roundId = mysql.saveRound(sessionId, roundNum, isDraw, winType,
-                winnerId, loserId, winTile, winHandJson, fanInfo, totalFan);
-        if (roundId > 0) {
-            for (Seat s : Seat.values()) {
-                boolean isWinner = !isDraw && r.winner == s;
-                int change = delta == null ? 0 : delta.get(s);
-                String detail = detailJsons == null ? "[]"
-                        : (detailJsons.get(s) == null ? "[]" : detailJsons.get(s));
-                mysql.saveRoundScore(roundId, userIdOf(room, s), s.ordinal(), change, isWinner, detail);
+        List<MysqlService.ScoreRow> rows = new ArrayList<MysqlService.ScoreRow>();
+        for (Seat s : Seat.values()) {
+            Long uid = userIdOf(room, s);
+            if (uid == null) {
+                continue;
             }
+            rows.add(new MysqlService.ScoreRow(uid, s.ordinal(),
+                    delta == null ? 0 : delta.get(s),
+                    !isDraw && r.winner == s,
+                    detailJsons == null ? "[]"
+                            : (detailJsons.get(s) == null ? "[]" : detailJsons.get(s))));
         }
+        mysql.saveHand(sessionId, roundNum, isDraw, winType,
+                winnerId, loserId, winTile, winHandJson, fanInfo, totalFan, dealerName, windIdx, rows);
     }
 
     private Long userIdOf(Room room, Seat seat) {
@@ -1228,6 +1324,7 @@ public class MultiPlayerRoomService {
         }
         Map<String, List<Integer>> discards = new HashMap<String, List<Integer>>();
         Map<String, List<Map<String, Object>>> melds = new HashMap<String, List<Map<String, Object>>>();
+        Map<String, List<Integer>> flowers = new HashMap<String, List<Integer>>();
         for (Seat s : Seat.values()) {
             discards.put(s.name(), new ArrayList<Integer>(rm.getPlayerDiscards(s)));
             List<Map<String, Object>> ml = new ArrayList<Map<String, Object>>();
@@ -1236,6 +1333,9 @@ public class MultiPlayerRoomService {
                 for (Meld meld : p.melds) {
                     ml.add(serializeMeld(meld));
                 }
+                flowers.put(s.name(), new ArrayList<Integer>(p.flowers));
+            } else {
+                flowers.put(s.name(), new ArrayList<Integer>());
             }
             melds.put(s.name(), ml);
         }
@@ -1243,6 +1343,7 @@ public class MultiPlayerRoomService {
         board.put("type", "board");
         board.put("discards", discards);
         board.put("melds", melds);
+        board.put("flowers", flowers);
         sendJson(session, board);
 
         Map<String, Integer> counts = new HashMap<String, Integer>();
@@ -1336,8 +1437,12 @@ public class MultiPlayerRoomService {
             Map<String, Object> msg = new HashMap<String, Object>();
             msg.put("type", "room_closed");
             msg.put("reason", text);
-            sendJson(m.roomWs, msg);
-            sendJson(m.gameWs, msg);
+            if (m.roomWs != null && m.roomWs.isOpen()) {
+                sendJson(m.roomWs, msg);
+            }
+            if (m.gameWs != null && m.gameWs.isOpen()) {
+                sendJson(m.gameWs, msg);
+            }
         }
         stopAndClear(room);
         log.info("房间 {} 解散：{}", room.code, text);
@@ -1373,9 +1478,10 @@ public class MultiPlayerRoomService {
 
     private void broadcastGame(Room room, Map<String, Object> msg) {
         for (Member m : new ArrayList<Member>(room.members.values())) {
-            if (bound(m)) {
-                sendJson(m.gameWs, msg);
+            if (isBot(m) || m.gameWs == null || !m.gameWs.isOpen()) {
+                continue;
             }
+            sendJson(m.gameWs, msg);
         }
     }
 
@@ -1387,13 +1493,36 @@ public class MultiPlayerRoomService {
         return view;
     }
 
+    /** 人机补齐的机器人成员：userId 为负，无 WebSocket，由引擎以 BotController 托管。 */
+    private static boolean isBot(Member m) {
+        return m != null && m.userId < 0;
+    }
+
+    /** 补位机器人使用的固定负 id：与战绩页 电脑·南/西/北 的口径一致。 */
+    private static long botUserId(Seat seat) {
+        switch (seat) {
+            case SOUTH: return -1;
+            case WEST:  return -2;
+            case NORTH: return -3;
+            default:    return -4; // EAST 一般不会缺位（房主即东）
+        }
+    }
+
+    private static String botNickname(Seat seat) {
+        String name = new String[]{"东", "南", "西", "北"}[seat.ordinal() & 3];
+        return "电脑·" + name;
+    }
+
     private static boolean bound(Member m) {
         return m != null && m.gameWs != null && m.gameWs.isOpen();
     }
 
     private static boolean allBound(Room room) {
         for (Member m : room.members.values()) {
-            if (!bound(m)) {
+            if (m == null) {
+                return false;
+            }
+            if (!isBot(m) && !bound(m)) {
                 return false;
             }
         }
@@ -1477,6 +1606,28 @@ public class MultiPlayerRoomService {
     private static Seat nextFreeSeat(Room room) {
         for (Seat s : Seat.values()) {
             if (!room.members.containsKey(s)) {
+                return s;
+            }
+        }
+        return null;
+    }
+
+    /** 真人数（不含补位电脑）。 */
+    private static int realCount(Room room) {
+        int n = 0;
+        for (Member m : room.members.values()) {
+            if (!isBot(m)) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    /** 返回第一个电脑座位（真人加入时顶替它）。 */
+    private static Seat firstBotSeat(Room room) {
+        for (Seat s : Seat.values()) {
+            Member m = room.members.get(s);
+            if (isBot(m)) {
                 return s;
             }
         }

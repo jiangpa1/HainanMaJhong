@@ -28,8 +28,22 @@ public class BotController implements PlayerController {
     }
 
     @Override
-    public void onDiscardTurn(Seat seat, List<Integer> hand, int drawnTile, Responder r) {
-        r.discard(pickDiscard(hand));
+    public void onDiscardTurn(Seat seat, List<Integer> hand, int drawnTile, List<Integer> banned, Responder r) {
+        r.discard(pickDiscard(withoutBanned(hand, banned)));
+    }
+
+    /** 去掉本次禁打的牌（吃后禁打）；若结果为空则原样返回（引擎层另有兜底）。 */
+    private List<Integer> withoutBanned(List<Integer> hand, List<Integer> banned) {
+        if (banned == null || banned.isEmpty()) {
+            return hand;
+        }
+        List<Integer> out = new ArrayList<Integer>();
+        for (int t : hand) {
+            if (!banned.contains(t)) {
+                out.add(t);
+            }
+        }
+        return out.isEmpty() ? hand : out;
     }
 
     @Override

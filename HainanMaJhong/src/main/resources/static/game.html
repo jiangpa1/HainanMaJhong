@@ -2,9 +2,9 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>海南麻将 · 人机对战</title>
-<link rel="stylesheet" href="landscape.css?v=20260907l">
+<link rel="stylesheet" href="landscape.css?v=20260908a">
 <style>
   :root {
     --gold: #f7d774;
@@ -35,7 +35,7 @@
   }
 
   /* ============================================================
-     核心内容层：.scale-layer（1280×720 设计分辨率，由 landscape.js?v=20260907l 缩放居中）
+     核心内容层：.scale-layer（1280×720 设计分辨率，由 landscape.js?v=20260908a 缩放居中）
      内部元素全部用 absolute 定位，按设计分辨率坐标摆放。
      ============================================================ */
   .scale-layer { overflow: hidden; }
@@ -188,6 +188,7 @@
   .tile.clickable:hover img {
     box-shadow: inset 0 1px 0 rgba(255,255,255,.75), 0 3px 0 #8a6a24, 0 0 0 2px var(--gold), 0 12px 18px rgba(0,0,0,.6);
   }
+  .tile.banned { opacity: .35; filter: grayscale(.8); cursor: not-allowed; }
   .drawn-sep { width: 12px; flex: 0 0 auto; }
   .tile.drawn img { box-shadow: inset 0 1px 0 rgba(255,255,255,.75), 0 0 0 2px #ffe066, 0 3px 0 #8a6a24; }
   /* 出牌堆里最新出的牌高亮，直到下一张出现 */
@@ -354,6 +355,59 @@
   }
   .menu-item:hover { background: rgba(247,215,116,.22); }
   .menu-item.danger { color: #ffb0a0; }
+
+  /* ===== 局内聊天 ===== */
+  .chat-btn {
+    width: 40px; height: 40px; border-radius: 50%;
+    border: 1px solid rgba(247,215,116,.65);
+    background: linear-gradient(180deg, #4fc3f7, #1e88c7);
+    color: #fff; font-size: 18px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 6px rgba(0,0,0,.45);
+    animation: railPulse 2.4s ease-in-out infinite;
+  }
+  .chat-btn:hover { filter: brightness(1.15); transform: scale(1.06); }
+  .chat-panel {
+    position: fixed; right: 58px; top: 50%; transform: translateY(-50%);
+    z-index: 1200; display: none;
+    flex-direction: column; gap: 10px;
+    width: min(320px, 86vw); max-height: 80vh;
+    background: linear-gradient(180deg, rgba(20,52,40,.985), rgba(10,32,24,.985));
+    border: 1px solid rgba(247,215,116,.65); border-radius: 12px;
+    padding: 12px; overflow: hidden;
+    box-shadow: 0 8px 24px rgba(0,0,0,.55);
+  }
+  .chat-panel.open { display: flex; }
+  .chat-title { font-size: 14px; font-weight: 900; color: #f0d27a; letter-spacing: 1px; }
+  .chat-phrases { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chat-phrase {
+    padding: 7px 9px; border: none; border-radius: 8px;
+    font-size: 12px; color: #fff; background: rgba(255,255,255,.08);
+    cursor: pointer; text-align: left; line-height: 1.35;
+  }
+  .chat-phrase:active { background: rgba(247,215,116,.32); }
+  .chat-emoji { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chat-emoji button { font-size: 22px; background: none; border: none; cursor: pointer; padding: 2px; }
+  .chat-input-row { display: flex; gap: 6px; }
+  .chat-input-row input {
+    flex: 1; min-width: 0; border: 1px solid rgba(255,255,255,.2); border-radius: 8px;
+    padding: 8px 10px; font-size: 13px; color: #fff; background: rgba(0,0,0,.35); outline: none;
+  }
+  .chat-send {
+    border: none; border-radius: 8px; padding: 0 16px; font-size: 14px; font-weight: 900;
+    color: #fff; background: linear-gradient(180deg, #46d17e, #1b7d45); cursor: pointer;
+  }
+  .seat { position: relative; }
+  .seat-chat {
+    position: absolute; left: 50%; top: 44px; transform: translateX(-50%);
+    max-width: 90%; background: rgba(0,0,0,.76);
+    border: 1px solid rgba(247,215,116,.65); border-radius: 12px;
+    padding: 7px 14px; font-size: 22px; color: #ffe9a8;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    z-index: 45; pointer-events: none; box-shadow: 0 2px 6px rgba(0,0,0,.45);
+  }
+  .seat-chat.mine { border-color: rgba(79,195,247,.8); color: #dff4ff; }
+
 
   /* ===== 局内战绩面板（卡片式，fixed 弹窗） ===== */
   .records-overlay {
@@ -600,11 +654,24 @@
 
 <!-- 缩放层外：右侧边缘锚定 -->
 <div class="side-rail">
+  <button class="rail-btn chat-btn" id="chat-btn" title="聊天">💬</button>
   <button class="rail-btn" id="settings-btn" title="菜单">⚙</button>
 </div>
 <div class="settings-menu" id="settings-menu">
   <div class="menu-item" onclick="openRecords()">📊 战绩查询</div>
   <div class="menu-item danger" id="quit-btn">🚪 退出游戏</div>
+</div>
+
+<!-- 局内聊天面板 -->
+<div class="chat-panel" id="chat-panel">
+  <div class="chat-title">快捷短语</div>
+  <div class="chat-phrases" id="chat-phrases"></div>
+  <div class="chat-title">表情</div>
+  <div class="chat-emoji" id="chat-emoji"></div>
+  <div class="chat-input-row">
+    <input id="chat-input" maxlength="60" placeholder="输入想说的话…">
+    <button class="chat-send" id="chat-send">发送</button>
+  </div>
 </div>
 
 <!-- 局内战绩面板 -->
@@ -689,6 +756,7 @@ function translateMsg(msg){
     out.melds = out.melds.map(translateMeld);   // hand：自己的副露数组
   }
   if (out.meld) out.meld = translateMeld(out.meld);
+  if (out.type === 'board' && out.flowers) out.flowers = mapSeatKeys(out.flowers);
   return out;
 }
 function initMulti(msg){
@@ -710,9 +778,9 @@ const state = {
   hand: [], melds: [], flowers: [], selfDiscards: [],
   counts: {EAST:0, SOUTH:13, WEST:13, NORTH:13},
   opponents: {
-    SOUTH: {discards: [], melds: []},
-    WEST:  {discards: [], melds: []},
-    NORTH: {discards: [], melds: []},
+    SOUTH: {discards: [], melds: [], flowers: []},
+    WEST:  {discards: [], melds: [], flowers: []},
+    NORTH: {discards: [], melds: [], flowers: []},
   },
   pending: null,
   timer: null,
@@ -720,11 +788,13 @@ const state = {
   drawnTile: -1,
   wall: -1,   // 牌墙剩余
   report: {},  // 座位(本地) -> 报听模式：1 天听 / 2 地听
+  chats: {},   // 座位(本地) -> {text, at} 聊天气泡
 };
 
 const wsProto = (location.protocol === 'https:') ? 'wss' : 'ws';
 let ws;
 function connect(){
+  if (!IS_MULTI) { location.replace('lobby.html'); return; } // 快速开始已下线，直接打开牌桌页回大厅
   const userId = localStorage.getItem('userId') || '0';
   let url;
   if (IS_MULTI) {
@@ -834,7 +904,9 @@ function handle(raw){
       for (const seat of ['SOUTH','WEST','NORTH']) {
         state.opponents[seat].discards = (msg.discards && msg.discards[seat]) || [];
         state.opponents[seat].melds = (msg.melds && msg.melds[seat]) || [];
+        state.opponents[seat].flowers = (msg.flowers && msg.flowers[seat]) || [];
       }
+      if (msg.flowers && msg.flowers[state.mySeat]) state.flowers = msg.flowers[state.mySeat];
       state.selfDiscards = (msg.discards && msg.discards[state.mySeat]) || [];
       discardLog = [];
       render();
@@ -845,10 +917,19 @@ function handle(raw){
       break;
     case 'flower':
       log(NICK[msg.seat] + ' 摸到花牌 ' + cardName(msg.tile) + '，补牌');
+      if (msg.seat === state.mySeat) {
+        state.flowers.push(msg.tile);
+      } else {
+        const o = state.opponents[msg.seat];
+        if (o) { if (!o.flowers) o.flowers = []; o.flowers.push(msg.tile); }
+      }
+      render();
+      break;
+    case 'chat':
+      if (msg.text) showChat(msg.seat, msg.text);
       break;
     case 'discard':
       if (msg.seat === state.mySeat) {
-        state.selfDiscards.push(msg.tile);
         log('你打出 ' + cardName(msg.tile));
       } else {
         state.opponents[msg.seat].discards.push(msg.tile);
@@ -904,7 +985,7 @@ function handle(raw){
 
 function handleRequest(msg){
   chiStep = null;
-  state.pending = { kind: msg.kind, reqId: msg.reqId, options: msg.options || [], canReport: !!msg.canReport };
+  state.pending = { kind: msg.kind, reqId: msg.reqId, options: msg.options || [], canReport: !!msg.canReport, ban: msg.ban || [] };
   if (msg.kind === 'discard') {
     state.hand = msg.hand.slice();
     state.drawnTile = (msg.drawnTile != null) ? msg.drawnTile : -1;
@@ -926,6 +1007,33 @@ function render(){
   renderSelf();
   renderOpponents();
   renderActions();
+  renderChats();
+}
+
+// ===== 局内聊天气泡 =====
+function showChat(seat, text){
+  if (!text) return;
+  state.chats[seat] = { text: String(text), at: Date.now() };
+  setTimeout(() => {
+    const c = state.chats[seat];
+    if (c && Date.now() - c.at >= 2900) { delete state.chats[seat]; render(); }
+  }, 3000);
+  render();
+}
+function renderChats(){
+  if (!state.chats) return;
+  for (const seat of ['EAST','SOUTH','WEST','NORTH']) {
+    const el = document.getElementById('seat-' + seat);
+    if (!el) continue;
+    const old = el.querySelector('.seat-chat');
+    if (old) old.remove();
+    const c = state.chats[seat];
+    if (!c || !c.text) continue;
+    const b = document.createElement('div');
+    b.className = 'seat-chat' + (seat === state.mySeat ? ' mine' : '');
+    b.textContent = c.text;
+    el.appendChild(b);
+  }
 }
 
 // 当前轮到谁（出牌）→ 对应昵称放大标红，所有端同步
@@ -981,15 +1089,16 @@ function resetHand(){
   state.flowers = [];
   state.selfDiscards = [];
   state.opponents = {
-    SOUTH: {discards: [], melds: []},
-    WEST:  {discards: [], melds: []},
-    NORTH: {discards: [], melds: []},
+    SOUTH: {discards: [], melds: [], flowers: []},
+    WEST:  {discards: [], melds: [], flowers: []},
+    NORTH: {discards: [], melds: [], flowers: []},
   };
   state.counts = {EAST:0, SOUTH:13, WEST:13, NORTH:13};
   state.pending = null;
   state.ended = false;
   state.drawnTile = -1;
   state.report = {};
+  state.chats = {};
   clearTimer();
   updateHandIndicator();
   render();
@@ -1028,8 +1137,10 @@ function renderSelf(){
       drawnTile = state.drawnTile;
     }
   }
+  const ban = (state.pending && state.pending.ban) || [];
   const handTiles = mainHand.map(t => {
-    const cls = 'tile' + (clickable ? ' clickable' : '');
+    const blocked = clickable && ban.indexOf(t) >= 0;
+    const cls = 'tile' + (clickable && !blocked ? ' clickable' : '') + (blocked ? ' banned' : '');
     return `<span class="${cls}" data-tile="${t}">${tileImg(t)}</span>`;
   }).join('');
   const drawnHtml = (drawnTile >= 0)
@@ -1066,10 +1177,13 @@ function renderOpponents(){
     const coin = state.coins[seat] || 0;
     const hidden = `<div class="hidden-count">${backTile(true).repeat(count)}</div>`;
     const melds = opp.melds.length ? `<div class="tiles">${opp.melds.map(m => meldHtml(m, seat, false)).join('')}</div>` : '';
+    const oppFlowers = (opp.flowers && opp.flowers.length)
+      ? `<div class="discards"><div class="label">花</div><div class="tiles">${opp.flowers.map(t => '<span class="tile small">' + tileImg(t) + '</span>').join('')}</div></div>` : '';
     el.innerHTML = `
       <div class="name">${NICK[seat]} ${seatBadge(seat)}<span class="badge">${count} 张 · 币 ${coin}</span></div>
       ${hidden}
-      ${melds}`;
+      ${melds}
+      ${oppFlowers}`;
     renderDiscard(seat, opp.discards);
   }
 }
@@ -1373,6 +1487,51 @@ document.getElementById('quit-btn').addEventListener('click', () => {
   }
 });
 
+// ===== 局内聊天 =====
+function myNickname(){
+  return localStorage.getItem('nickname') || localStorage.getItem('username') || '玩家';
+}
+const CHAT_PHRASES = [
+  '快点啊~等得我花儿都谢了', '注意啦！', '窃听风云！', '不必理会',
+  '闹麻', '气不气', '很气很气',
+  "别逗你'" + myNickname() + "'哥笑了"
+];
+const CHAT_EMOJI = ['😄','😂','😅','😭','🥺','😠','😤','🤣','💯','👀','👍','😴'];
+function sendChat(text){
+  text = String(text == null ? '' : text).trim();
+  if (!text) return;
+  send({ type: 'chat', text: text });
+}
+function sendTypedChat(){
+  const inp = document.getElementById('chat-input');
+  sendChat(inp.value);
+  inp.value = '';
+}
+(function initChat(){
+  const phraseBox = document.getElementById('chat-phrases');
+  if (!phraseBox) return;
+  phraseBox.innerHTML = CHAT_PHRASES.map((p, i) => `<button class="chat-phrase" data-i="${i}">${esc(p)}</button>`).join('');
+  phraseBox.querySelectorAll('button').forEach(b => b.addEventListener('click', () => sendChat(CHAT_PHRASES[+b.dataset.i])));
+  const emoBox = document.getElementById('chat-emoji');
+  emoBox.innerHTML = CHAT_EMOJI.map(e => `<button data-e="${esc(e)}">${e}</button>`).join('');
+  emoBox.querySelectorAll('button').forEach(b => b.addEventListener('click', () => sendChat(b.dataset.e)));
+  document.getElementById('chat-send').addEventListener('click', sendTypedChat);
+  const inp = document.getElementById('chat-input');
+  inp.addEventListener('keydown', ev => { if (ev.key === 'Enter') { sendTypedChat(); } });
+  const chatBtn = document.getElementById('chat-btn');
+  const chatPanel = document.getElementById('chat-panel');
+  chatBtn.addEventListener('click', ev => {
+    ev.stopPropagation();
+    document.getElementById('settings-menu').classList.remove('open');
+    chatPanel.classList.toggle('open');
+  });
+  document.addEventListener('click', e => {
+    if (chatPanel.classList.contains('open') && !chatPanel.contains(e.target) && e.target !== chatBtn) {
+      chatPanel.classList.remove('open');
+    }
+  });
+})();
+
 // ===== 局内战绩面板（不离开对局，游戏继续运行） =====
 function openRecords(){
   const roomId = localStorage.getItem('roomId') || '';
@@ -1408,10 +1567,20 @@ function renderRecordsDetail(data){
     <div class="ov-players">${players}</div>`;
 
   const rounds = data.rounds || [];
+  const WIND = ['东','南','西','北'];
+  const SEAT = {EAST:'东', SOUTH:'南', WEST:'西', NORTH:'北'};
+  const metaOf = (r) => {
+    const bits = [];
+    bits.push('庄 ' + (SEAT[r.dealerSeat] || '?') + (r.dealerNickname ? '·' + esc(r.dealerNickname) : ''));
+    if (r.windIdx != null) bits.push('令 ' + (WIND[r.windIdx] || '?'));
+    if (!r.isDraw && r.winType === 1 && r.loser && r.winTile != null) bits.push('点炮 ' + esc(r.loser) + ' 打 ' + cardName(r.winTile));
+    return bits.length
+      ? '<div style="font-size:11px;color:#cfe0d6;opacity:.85;line-height:1.45;word-break:break-all;flex-wrap:wrap">' + bits.join('　') + '</div>' : '';
+  };
   let cards = '';
   rounds.forEach(r => {
     if (r.isDraw) {
-      cards += `<div class="round-card"><span class="rc-num">${r.roundNum}</span><span class="rc-winner">荒庄</span></div>`;
+      cards += `<div class="round-card" style="display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap"><span class="rc-num">${r.roundNum}</span><div style="flex:1;min-width:150px">${metaOf(r)}<span class="rc-winner">荒庄</span></div></div>`;
       return;
     }
     const ps = r.participants || [];
@@ -1440,7 +1609,7 @@ function renderRecordsDetail(data){
       .forEach(p => lines.push(row(p, '')));
     cards += `<div class="round-card" style="display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap">
       <span class="rc-num">${r.roundNum}</span>
-      <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:150px">${lines.join('')}</div>
+      <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:150px">${metaOf(r)}${lines.join('')}</div>
     </div>`;
   });
   document.getElementById('records-rounds').innerHTML = `<div class="round-list">${cards}</div>`;
@@ -1456,6 +1625,16 @@ document.getElementById('records-overlay').addEventListener('click', (e) => {
 
 connect();
 </script>
-<script src="landscape.js?v=20260907l"></script>
+<script>
+// APK(WebView/HBuilder)：安卓返回键 → 有历史网页后退，否则退出应用
+(function(){
+  function onBack(){
+    if (window.history && window.history.length > 1) { try { window.history.back(); return; } catch (e) {} }
+    if (typeof plus !== 'undefined' && plus.runtime) { try { plus.runtime.quit(); } catch (e) {} }
+  }
+  if (typeof plus !== 'undefined' && plus.key) { plus.key.addEventListener('backbutton', onBack); }
+})();
+</script>
+<script src="landscape.js?v=20260908a"></script>
 </body>
 </html>

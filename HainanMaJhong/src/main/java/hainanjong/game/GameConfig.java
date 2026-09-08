@@ -13,6 +13,7 @@ public class GameConfig {
     public final int maxTurns;           // 最多出牌次数（0 表示不限），用于演示限长
     public final boolean hainan;         // 是否启用海南规则（有番门禁/尾墙15等）
     public final int roundWindIdx;       // 当前“令”风 0东 1南 2西 3北（海南用）
+    public boolean fanGate = true;       // 海南：有番才能胡（false=无番，结构合法即可胡）
 
     public GameConfig(boolean withFlowers, Seat dealer, long discardTimeoutMs, long actionTimeoutMs,
                       long seed, boolean chiOnlyNext, int maxTurns) {

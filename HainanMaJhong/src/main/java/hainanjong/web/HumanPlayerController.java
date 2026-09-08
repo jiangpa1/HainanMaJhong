@@ -90,7 +90,7 @@ public class HumanPlayerController implements PlayerController {
     }
 
     @Override
-    public void onDiscardTurn(Seat seat, List<Integer> hand, int drawnTile, Responder responder) {
+    public void onDiscardTurn(Seat seat, List<Integer> hand, int drawnTile, List<Integer> banned, Responder responder) {
         int id = seq.incrementAndGet();
         Map<String, Object> m = new HashMap<String, Object>();
         m.put("type", "request");
@@ -100,6 +100,9 @@ public class HumanPlayerController implements PlayerController {
         m.put("drawnTile", drawnTile);
         m.put("canReport", reportHint);
         m.put("timeoutMs", discardTimeoutMs);
+        if (banned != null && !banned.isEmpty()) {
+            m.put("ban", new ArrayList<Integer>(banned)); // 吃后禁打：前端置灰
+        }
         remember(id, responder, null, m);
         emit(m);
     }

@@ -16,6 +16,14 @@ public class HainanConfig {
     /** 底分（默认 1，庄连庄时累加的是它，非庄胡下庄后重置回本值）。 */
     public int basePoint = 1;
 
+    /** 有番才能胡（默认 true=有番；false=无番，结构合法即可胡，其余规则不变）。 */
+    public boolean fanGate = true;
+
+    /** 杠分值：明杠 / 补杠 / 暗杠（三家各付一份的单位分）。 */
+    public int gangMing = 1;
+    public int gangBu = 1;
+    public int gangAn = 2;
+
     /** 花杠分（每局结算的额外分）：真花（春夏秋冬一套 或 梅兰竹菊一套）。 */
     public int flowerTrue = 1;
 

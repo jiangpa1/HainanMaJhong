@@ -21,3 +21,6 @@ out/
 # ---- 系统 ----
 .DS_Store
 Thumbs.db
+
+# 大厅“下载APP”源包（重复文件；打包用 src/main/resources/static/apk/ 那份）
+/HainanMaJhong/jiangpahnmj.apk

@@ -2,9 +2,9 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>海南麻将 · 战绩</title>
-<link rel="stylesheet" href="landscape.css?v=20260907l">
+<link rel="stylesheet" href="landscape.css?v=20260908a">
 <style>
   :root {
     --gold: #f7d774;
@@ -30,7 +30,7 @@
     background:
       radial-gradient(900px 500px at 50% 0%, rgba(52,122,82,.32), rgba(52,122,82,0) 60%),
       linear-gradient(180deg, var(--green) 0%, var(--green-dark) 100%);
-    /* 移动端 landscape.js?v=20260907l 会把页面搬进 #game-app，这里恢复 flex 纵向排列，
+    /* 移动端 landscape.js?v=20260908a 会把页面搬进 #game-app，这里恢复 flex 纵向排列，
        否则 #list 的 flex:1 + overflow 没有可滚动的父级 */
     display: flex;
     flex-direction: column;
@@ -214,6 +214,7 @@
     flex-wrap: nowrap;      /* 横屏不换行 */
   }
   .rc-num { flex: 0 0 40px; font-weight: 900; color: var(--gold); font-size: 15px; }
+  .rc-meta { font-size: 11px; color: #cfe0d6; opacity: .85; line-height: 1.5; word-break: break-all; flex-wrap: wrap; }
   .rc-badge { flex: 0 0 auto; padding: 3px 12px; border-radius: 20px; font-size: 13px; font-weight: 900; }
   .rc-badge.hu  { background: linear-gradient(180deg, #f15a48, #c93025); color: #fff; }
   .rc-badge.pao { background: linear-gradient(180deg, #f2a33c, #d97a14); color: #fff; }
@@ -388,10 +389,20 @@ function renderDetail(data){
     <div class="ov-players">${players}</div>`;
 
   const rounds = data.rounds || [];
+  const WIND = ['东','南','西','北'];
+  const SEAT = {EAST:'东', SOUTH:'南', WEST:'西', NORTH:'北'};
+  const metaOf = (r) => {
+    const bits = [];
+    bits.push('庄 ' + (SEAT[r.dealerSeat] || '?') + (r.dealerNickname ? '·' + esc(r.dealerNickname) : ''));
+    if (r.windIdx != null) bits.push('令 ' + (WIND[r.windIdx] || '?'));
+    if (!r.isDraw && r.winType === 1 && r.loser && r.winTile != null) bits.push('点炮 ' + esc(r.loser) + ' 打 ' + cardName(r.winTile));
+    return bits.length
+      ? '<div class="rc-meta">' + bits.join('　') + '</div>' : '';
+  };
   let cards = '';
   rounds.forEach(r => {
     if (r.isDraw) {
-      cards += `<div class="round-card"><span class="rc-num">${r.roundNum}</span><span class="rc-winner">荒庄</span></div>`;
+      cards += `<div class="round-card" style="display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap"><span class="rc-num">${r.roundNum}</span><div class="rc-ppl" style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:150px">${metaOf(r)}<span class="rc-winner">荒庄</span></div></div>`;
       return;
     }
     const ps = r.participants || [];
@@ -419,9 +430,9 @@ function renderDetail(data){
     ps.filter(p => !p.isWinner
         && (((p.detail || {}).gangs || []).length || ((p.detail || {}).notes || []).length))
       .forEach(p => lines.push(row(p, '')));
-    cards += `<div class="round-card">
+    cards += `<div class="round-card" style="display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap">
       <span class="rc-num">${r.roundNum}</span>
-      <div class="rc-ppl" style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:150px">${lines.join('')}</div>
+      <div class="rc-ppl" style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:150px">${metaOf(r)}${lines.join('')}</div>
     </div>`;
   });
   roundsEl.innerHTML = `<div class="round-list">${cards}</div>`;
@@ -446,6 +457,16 @@ if (urlRoomId) {
   loadList();
 }
 </script>
-<script src="landscape.js?v=20260907l"></script>
+<script>
+// APK(WebView/HBuilder)：安卓返回键 → 有历史网页后退，否则退出应用
+(function(){
+  function onBack(){
+    if (window.history && window.history.length > 1) { try { window.history.back(); return; } catch (e) {} }
+    if (typeof plus !== 'undefined' && plus.runtime) { try { plus.runtime.quit(); } catch (e) {} }
+  }
+  if (typeof plus !== 'undefined' && plus.key) { plus.key.addEventListener('backbutton', onBack); }
+})();
+</script>
+<script src="landscape.js?v=20260908a"></script>
 </body>
 </html>

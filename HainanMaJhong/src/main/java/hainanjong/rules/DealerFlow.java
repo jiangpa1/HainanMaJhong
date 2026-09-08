@@ -7,25 +7,25 @@ import hainanjong.game.Seat;
  * 海南规则“坐庄/荒庄/令/底分”的房间级推进状态机。
  *
  * <ul>
- *   <li>首局庄随机；庄胡牌或流局(荒庄) → 连庄，底分 +1，令不变；</li>
- *   <li>非庄胡 → 下庄：新庄=原庄下家，底分重置为房间设定值；</li>
+ *   <li>首局庄随机；庄胡牌或流局(荒庄) → 连庄：底分=初始底分×(连庄次数+1)，令不变；</li>
+ *   <li>非庄胡 → 下庄：新庄=原庄下家，底分重置为房间设定值（连庄次数清零）；</li>
  *   <li>“令”跟“首局庄第 2/3/4 次重新上庄”换南/西/北（连庄不推进）；</li>
  *   <li>一轮=打满四风：首局庄完成第 4 庄（第 4 次上庄那一段也下庄）即结束。</li>
  * </ul>
  */
 public final class DealerFlow {
 
-    /** 底分累加步长（每连一庄 +1）。 */
-    public static final int BOTTOM_STEP = 1;
-
     private final HainanConfig cfg;
     private final Seat firstDealer;
 
     public Seat dealer;       // 当前庄（本把）
-    public int bottom;        // 本把的庄底分
+    public int bottom;        // 本把的庄底分 = cfg.basePoint × (keeps+1)
     public int windIdx;       // 本把令 0东 1南 2西 3北
     public int handNo;        // 从 1 计的把数（显示用）
     public boolean finished;  // 是否已打满四风
+
+    /** 当前庄连续连庄次数（0=刚上庄）；连庄一次 +1，下庄归零。 */
+    private int keeps;
 
     private int firstDealerBegins; // 首局庄已“开始坐庄”的次数
     private int handsPlayed;
@@ -34,16 +34,22 @@ public final class DealerFlow {
         this.cfg = cfg;
         this.firstDealer = firstDealer;
         this.dealer = firstDealer;
-        this.bottom = cfg.basePoint;
-        this.windIdx = 0;            // 东风令
+        this.bottom = cfg.basePoint;   // keeps=0 → base×1
+        this.windIdx = 0;              // 东风令
         this.handNo = 1;
         this.finished = false;
-        this.firstDealerBegins = 1;  // 首把即首局庄第一次坐庄
+        this.keeps = 0;
+        this.firstDealerBegins = 1;    // 首把即首局庄第一次坐庄
         this.handsPlayed = 0;
     }
 
     public int windIdx() {
         return windIdx;
+    }
+
+    /** 当前庄已连续连庄次数（乘算底分的乘数-1）。 */
+    public int consecutiveKeeps() {
+        return keeps;
     }
 
     public static String windName(int idx) {
@@ -56,8 +62,9 @@ public final class DealerFlow {
         handNo++;
         boolean dealerWon = !r.isDraw && r.winner == dealer;
         if (dealerWon || r.isDraw) {
-            // 连庄：底分 +1，令不变（荒庄/庄胡都连庄）
-            bottom += BOTTOM_STEP;
+            // 连庄：乘算底分 = 初始底分×(连庄次数+1)，令不变（荒庄/庄胡都连庄）
+            keeps++;
+            bottom = cfg.basePoint * (keeps + 1);
             if (handsPlayed > MAX_HANDS) {
                 finished = true; // 防御性兜底，正常不会触发
             }
@@ -68,7 +75,8 @@ public final class DealerFlow {
             finished = true;
         }
         dealer = dealer.next();
-        bottom = cfg.basePoint; // 重置底分
+        keeps = 0;
+        bottom = cfg.basePoint; // 重置底分（乘数归 1）
         if (dealer == firstDealer) {
             // 首局庄重新上庄：换令（连庄期间已排除），最多到北
             firstDealerBegins++;
@@ -98,7 +106,7 @@ public final class DealerFlow {
         return handsPlayed;
     }
 
-    /** 从存档重建（服务重启续跑用）。 */
+    /** 从存档重建（服务重启续跑用）。bottom=base×(keeps+1)，故可由 bottom 反推 keeps。 */
     public static DealerFlow restore(HainanConfig cfg, Seat first, Seat dealer, int bottom,
                                      int windIdx, int handNo, int begins, int handsPlayed) {
         DealerFlow f = new DealerFlow(cfg, first);
@@ -108,6 +116,8 @@ public final class DealerFlow {
         f.handNo = Math.max(1, handNo);
         f.firstDealerBegins = Math.max(1, begins);
         f.handsPlayed = Math.max(0, handsPlayed);
+        int base = cfg.basePoint;
+        f.keeps = base > 0 ? Math.max(0, bottom / base - 1) : 0;
         return f;
     }
 }

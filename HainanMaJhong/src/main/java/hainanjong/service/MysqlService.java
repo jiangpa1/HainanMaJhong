@@ -7,6 +7,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.PostConstruct;
 import java.sql.PreparedStatement;
@@ -55,7 +56,8 @@ public class MysqlService {
                     + " current_round INT DEFAULT 1,"
                     + " status TINYINT DEFAULT 0,"
                     + " start_time DATETIME DEFAULT CURRENT_TIMESTAMP,"
-                    + " end_time DATETIME"
+                    + " end_time DATETIME,"
+                    + " KEY idx_room (room_id)"
                     + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
             jdbc.execute("CREATE TABLE IF NOT EXISTS game_rounds ("
                     + " id BIGINT AUTO_INCREMENT PRIMARY KEY,"
@@ -69,7 +71,10 @@ public class MysqlService {
                     + " win_hand JSON,"
                     + " fan_info JSON,"
                     + " total_fan INT DEFAULT 0,"
-                    + " create_time DATETIME DEFAULT CURRENT_TIMESTAMP"
+                    + " dealer VARCHAR(8),"
+                    + " wind TINYINT,"
+                    + " create_time DATETIME DEFAULT CURRENT_TIMESTAMP,"
+                    + " UNIQUE KEY uk_session_round (session_id, round_num)"
                     + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
             jdbc.execute("CREATE TABLE IF NOT EXISTS game_round_scores ("
                     + " id BIGINT AUTO_INCREMENT PRIMARY KEY,"
@@ -78,13 +83,29 @@ public class MysqlService {
                     + " seat TINYINT NOT NULL,"
                     + " score_change INT DEFAULT 0,"
                     + " is_winner BOOLEAN DEFAULT 0,"
-                    + " detail JSON"
+                    + " detail JSON,"
+                    + " UNIQUE KEY uk_round_user (round_id, user_id),"
+                    + " KEY idx_user_round (user_id, round_id)"
                     + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
             // 兼容旧表：补加 detail 列
             try {
                 jdbc.execute("ALTER TABLE game_round_scores ADD COLUMN detail JSON");
             } catch (Exception ignored) {
                 // 列已存在，忽略
+            }
+            // 存量库补索引/唯一键（新建库已由上面的 CREATE 内联带出，这里跳过）
+            ensureIndex("game_sessions", "idx_room", false, "room_id");
+            ensureIndex("game_rounds", "uk_session_round", true, "session_id", "round_num");
+            ensureIndex("game_round_scores", "uk_round_user", true, "round_id", "user_id");
+            ensureIndex("game_round_scores", "idx_user_round", false, "user_id", "round_id");
+            // 兼容旧表：补加 庄/令 列
+            try {
+                jdbc.execute("ALTER TABLE game_rounds ADD COLUMN dealer VARCHAR(8)");
+            } catch (Exception ignored) {
+            }
+            try {
+                jdbc.execute("ALTER TABLE game_rounds ADD COLUMN wind TINYINT");
+            } catch (Exception ignored) {
             }
             log.info("数据表已就绪：user / game_sessions / game_rounds / game_round_scores");
         } catch (Exception e) {
@@ -166,11 +187,6 @@ public class MysqlService {
                 roomId, creatorId, playerIdsJson);
     }
 
-    /** 更新当前进行到第几把。 */
-    public void updateSessionRound(long sessionId, int round) {
-        jdbc.update("UPDATE game_sessions SET current_round=? WHERE id=?", round, sessionId);
-    }
-
     /** 结束整场对局（正常打完 16 把）。 */
     public void finishSession(long sessionId) {
         jdbc.update("UPDATE game_sessions SET status=1, end_time=NOW() WHERE id=?", sessionId);
@@ -181,20 +197,61 @@ public class MysqlService {
         jdbc.update("UPDATE game_sessions SET status=2, end_time=NOW() WHERE id=?", sessionId);
     }
 
-    /** 保存一把对局，返回 round id。winType：0 自摸 / 1 接炮 / 2 流局。 */
-    public long saveRound(long sessionId, int roundNum, boolean isDraw, int winType,
-                          Long winnerId, Long loserId, Integer winTile, String winHandJson,
-                          String fanInfoJson, int totalFan) {
-        return insertReturningKey(
-                "INSERT INTO game_rounds(session_id, round_num, is_draw, win_type, winner_id, loser_id, win_tile, win_hand, fan_info, total_fan, create_time)"
-                        + " VALUES(?,?,?,?,?,?,?,?,?,?,NOW())",
-                sessionId, roundNum, isDraw ? 1 : 0, winType, winnerId, loserId, winTile, winHandJson, fanInfoJson, totalFan);
+    /** 一把对局中某位玩家的盈亏流水。 */
+    public static class ScoreRow {
+        public final long userId;
+        public final int seat;
+        public final int change;
+        public final boolean winner;
+        public final String detail;
+
+        public ScoreRow(long userId, int seat, int change, boolean winner, String detail) {
+            this.userId = userId;
+            this.seat = seat;
+            this.change = change;
+            this.winner = winner;
+            this.detail = detail;
+        }
     }
 
-    /** 保存一把对局中某位玩家的盈亏流水及该局明细标签（杠/花/胡）。 */
-    public void saveRoundScore(long roundId, long userId, int seat, int scoreChange, boolean isWinner, String detailJson) {
-        jdbc.update("INSERT INTO game_round_scores(round_id, user_id, seat, score_change, is_winner, detail)"
-                + " VALUES(?,?,?,?,?,?)", roundId, userId, seat, scoreChange, isWinner ? 1 : 0, detailJson);
+    /**
+     * 事务内保存一把对局及其四家流水（幂等）。
+     * 同 (session_id, round_num) 已存在（服务重启后重放同把）时复用其 round 并覆盖该把流水，
+     * 避免撞唯一键或残留半截数据；同时推进 game_sessions.current_round。
+     * winType：0 自摸 / 1 接炮 / 2 流局。
+     */
+    @Transactional
+    public long saveHand(long sessionId, int roundNum, boolean isDraw, int winType,
+                         Long winnerId, Long loserId, Integer winTile,
+                         String winHandJson, String fanInfoJson, int totalFan,
+                         String dealerName, int windIdx,
+                         List<ScoreRow> scores) {
+        Long roundId = findRoundId(sessionId, roundNum);
+        if (roundId == null) {
+            roundId = insertReturningKey(
+                    "INSERT INTO game_rounds(session_id, round_num, is_draw, win_type, winner_id, loser_id, win_tile, win_hand, fan_info, total_fan, dealer, wind, create_time)"
+                            + " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,NOW())",
+                    sessionId, roundNum, isDraw ? 1 : 0, winType, winnerId, loserId, winTile, winHandJson,
+                    fanInfoJson, totalFan, dealerName, windIdx);
+        } else {
+            // 续跑重放同把手：清掉可能残留的半截流水，按最新结算整把重写
+            jdbc.update("DELETE FROM game_round_scores WHERE round_id = ?", roundId);
+        }
+        if (scores != null) {
+            for (ScoreRow sc : scores) {
+                jdbc.update("INSERT INTO game_round_scores(round_id, user_id, seat, score_change, is_winner, detail)"
+                        + " VALUES(?,?,?,?,?,?)",
+                        roundId, sc.userId, sc.seat, sc.change, sc.winner ? 1 : 0, sc.detail);
+            }
+        }
+        jdbc.update("UPDATE game_sessions SET current_round=? WHERE id=?", roundNum, sessionId);
+        return roundId;
+    }
+
+    private Long findRoundId(long sessionId, int roundNum) {
+        List<Long> rows = jdbc.query("SELECT id FROM game_rounds WHERE session_id = ? AND round_num = ? LIMIT 1",
+                (rs, i) -> rs.getLong(1), sessionId, roundNum);
+        return rows.isEmpty() ? null : rows.get(0);
     }
 
     // ==================== 战绩查询 ====================
@@ -206,9 +263,9 @@ public class MysqlService {
         return rows.isEmpty() ? null : rows.get(0);
     }
 
-    /** 根据 room_id 反查 session id。 */
+    /** 根据 room_id 反查 session id；同房间码 rematch 会新建 session，故取最新一条（id 最大）。 */
     public Long getSessionIdByRoomId(String roomId) {
-        List<Long> rows = jdbc.query("SELECT id FROM game_sessions WHERE room_id = ?",
+        List<Long> rows = jdbc.query("SELECT id FROM game_sessions WHERE room_id = ? ORDER BY id DESC LIMIT 1",
                 (rs, i) -> rs.getLong(1), roomId);
         return rows.isEmpty() ? null : rows.get(0);
     }
@@ -224,29 +281,28 @@ public class MysqlService {
                         + " ORDER BY s.id DESC", userId);
     }
 
-    /** 某房间各玩家的最终总分与座位：userId -> [seat, totalScore]。 */
-    public Map<Long, int[]> sessionPlayerTotals(long sessionId) {
-        Map<Long, int[]> map = new HashMap<Long, int[]>();
-        jdbc.query("SELECT rc.user_id, MAX(rc.seat), SUM(rc.score_change)"
-                + " FROM game_round_scores rc JOIN game_rounds r ON r.id = rc.round_id"
-                + " WHERE r.session_id = ? GROUP BY rc.user_id",
+    /** 多个房间各玩家的最终总分与座位：sessionId -> (userId -> [seat, totalScore])。一次查询替代逐场聚合。 */
+    public Map<Long, Map<Long, int[]>> sessionPlayerTotalsOfSessions(List<Long> sessionIds) {
+        Map<Long, Map<Long, int[]>> bySession = new HashMap<Long, Map<Long, int[]>>();
+        if (sessionIds == null || sessionIds.isEmpty()) {
+            return bySession;
+        }
+        StringBuilder ph = new StringBuilder();
+        for (int i = 0; i < sessionIds.size(); i++) {
+            if (i > 0) {
+                ph.append(',');
+            }
+            ph.append('?');
+        }
+        jdbc.query("SELECT r.session_id, rc.user_id, MAX(rc.seat), SUM(rc.score_change)"
+                        + " FROM game_round_scores rc JOIN game_rounds r ON r.id = rc.round_id"
+                        + " WHERE r.session_id IN (" + ph + ") GROUP BY r.session_id, rc.user_id",
                 rs -> {
-                    map.put(rs.getLong(1), new int[]{rs.getInt(2), rs.getInt(3)});
-                }, sessionId);
-        return map;
-    }
-
-    /** 某房间每一把的详情（含当前用户的积分变动），按局数排序。 */
-    public List<Map<String, Object>> sessionRounds(long sessionId, long userId) {
-        return jdbc.queryForList(
-                "SELECT r.round_num AS roundNum, r.is_draw AS isDraw, r.win_type AS winType,"
-                        + " r.winner_id AS winnerId, r.loser_id AS loserId, r.win_tile AS winTile,"
-                        + " r.win_hand AS winHand, r.fan_info AS fanInfo, r.total_fan AS totalFan,"
-                        + " rc.score_change AS scoreChange, rc.is_winner AS isWinner"
-                        + " FROM game_rounds r"
-                        + " LEFT JOIN game_round_scores rc ON rc.round_id = r.id AND rc.user_id = ?"
-                        + " WHERE r.session_id = ? ORDER BY r.round_num",
-                userId, sessionId);
+                    bySession.computeIfAbsent(rs.getLong(1), k -> new HashMap<Long, int[]>())
+                            .put(rs.getLong(2), new int[]{rs.getInt(3), rs.getInt(4)});
+                },
+                sessionIds.toArray());
+        return bySession;
     }
 
     /** 某房间每一把的全局四家明细（每行 = 一把 × 一位玩家，含其 detail 标签）。 */
@@ -255,11 +311,30 @@ public class MysqlService {
                 "SELECT r.round_num AS roundNum, r.is_draw AS isDraw, r.win_type AS winType,"
                         + " r.winner_id AS winnerId, r.loser_id AS loserId, r.win_tile AS winTile,"
                         + " r.win_hand AS winHand, r.fan_info AS fanInfo, r.total_fan AS totalFan,"
+                        + " r.dealer AS dealerName, r.wind AS windIdx,"
                         + " rc.user_id AS userId, rc.seat AS seat,"
                         + " rc.score_change AS scoreChange, rc.is_winner AS isWinner, rc.detail AS detail"
                         + " FROM game_rounds r JOIN game_round_scores rc ON rc.round_id = r.id"
                         + " WHERE r.session_id = ? ORDER BY r.round_num, rc.seat",
                 sessionId);
+    }
+
+    /** 幂等补索引：目标索引不存在时才 ALTER 添加，单次失败不阻断后续（兼容旧库升级）。 */
+    private void ensureIndex(String table, String index, boolean unique, String... cols) {
+        try {
+            List<Integer> rows = jdbc.query(
+                    "SELECT COUNT(*) FROM information_schema.statistics"
+                            + " WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?",
+                    (rs, i) -> rs.getInt(1), table, index);
+            if (!rows.isEmpty() && rows.get(0) > 0) {
+                return;
+            }
+            jdbc.execute("ALTER TABLE `" + table + "` ADD "
+                    + (unique ? "UNIQUE KEY `" : "KEY `") + index + "` (" + String.join(", ", cols) + ")");
+            log.info("数据表 {} 已补索引 {}", table, index);
+        } catch (Exception e) {
+            log.warn("为 {} 补索引 {} 失败（可忽略）：{}", table, index, e.getMessage());
+        }
     }
 
     private long insertReturningKey(String sql, Object... args) {

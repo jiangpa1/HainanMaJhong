@@ -15,9 +15,11 @@ public interface PlayerController {
      *
      * @param seat      座位
      * @param hand      当前手牌（副本，已排序）
+     * @param drawnTile 刚摸的牌（吃碰后为 -1）
+     * @param banned    本次不可打出的牌面值（吃后禁打；无限制时为空列表）
      * @param responder 通过 {@code responder.discard(tile)} 应答
      */
-    void onDiscardTurn(Seat seat, List<Integer> hand, int drawnTile, Responder responder);
+    void onDiscardTurn(Seat seat, List<Integer> hand, int drawnTile, List<Integer> banned, Responder responder);
 
     /**
      * {@code seat} 可以对别人打出的 {@code discardedTile} 做出反应。

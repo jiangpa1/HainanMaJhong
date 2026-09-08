@@ -15,20 +15,15 @@ import java.util.Map;
  * 登录 / 注册 / 个人信息（昵称、密码）接口。
  *
  * <p>密码用 SHA-256 哈希后存库（生产环境建议改用 BCrypt）。</p>
- *
- * <p>登录遵循“同一账号互斥”：若该账号当前正在别的操作端对局，会先强制旧端下线
- * 并废弃其在打的牌局（见 {@link WebSocketGameService#kickUser(long)}）。</p>
  */
 @RestController
 @RequestMapping("/api")
 public class AuthController {
 
     private final MysqlService mysql;
-    private final WebSocketGameService gameService;
 
-    public AuthController(MysqlService mysql, WebSocketGameService gameService) {
+    public AuthController(MysqlService mysql) {
         this.mysql = mysql;
-        this.gameService = gameService;
     }
 
     @PostMapping("/register")
@@ -57,13 +52,6 @@ public class AuthController {
             return fail("用户名或密码错误");
         }
         Long userId = mysql.findUserId(username);
-        if (userId != null && userId > 0) {
-            try {
-                gameService.kickUser(userId);
-            } catch (Exception e) {
-                // 顶下线失败不应阻断本次登录
-            }
-        }
         return okWithUser("登录成功", userId == null ? 0L : userId);
     }
 
