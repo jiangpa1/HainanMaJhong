@@ -206,6 +206,25 @@ public class HainanRulesSelfTest {
         check("E 连庄2 底分6", f2.bottom == 6 && f2.consecutiveKeeps() == 2);
         f2.afterRound(hainanjong.game.RoundResult.draw());
         check("E 流局连庄 底分8", f2.dealer == Seat.SOUTH && f2.bottom == 8 && f2.consecutiveKeeps() == 3);
+
+        // F) 新口径：庄笔=当前庄底分、闲笔=房间初始底分、点炮追加=初始底分
+        //    底分2且庄连庄一次(当前4)：闲自摸平胡 → 庄付8、两闲各付4、赢家收16
+        HainanConfig cfg3 = HainanConfig.defaultConfig();
+        cfg3.basePoint = 2;
+        hainanjong.game.RoundResult rf = hainanjong.game.RoundResult.win(
+                Seat.SOUTH, true, false, -1, null, null, ph, none);
+        java.util.Map<Seat, Integer> df = HainanScore.settle(rf, Seat.EAST, 4, cfg3);
+        check("F 庄付8", df.get(Seat.EAST) == -8);
+        check("F 闲各付4", df.get(Seat.WEST) == -4 && df.get(Seat.NORTH) == -4);
+        check("F 赢家收16", df.get(Seat.SOUTH) == 16);
+
+        // G) 底分2未连庄：闲接庄点炮平胡 → 庄=份额2+追加2=4、闲各2、赢家收8
+        hainanjong.game.RoundResult rg = hainanjong.game.RoundResult.win(
+                Seat.WEST, false, false, 0, Seat.EAST, null, ph, none);
+        java.util.Map<Seat, Integer> dg = HainanScore.settle(rg, Seat.EAST, 2, cfg3);
+        check("G 庄点炮付4", dg.get(Seat.EAST) == -4);
+        check("G 闲各付2", dg.get(Seat.SOUTH) == -2 && dg.get(Seat.NORTH) == -2);
+        check("G 赢家收8", dg.get(Seat.WEST) == 8);
     }
 
     // ==================== 四风整局仿真（应总能结束且令推进到北） ====================

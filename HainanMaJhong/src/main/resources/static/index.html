@@ -227,6 +227,9 @@
     </div>
 
     <button type="submit" class="submit" id="submit-btn" data-landscape>进入游戏</button>
+    <label style="display:flex;align-items:center;gap:6px;justify-content:center;font-size:12px;color:#9fd0bd;margin-top:10px;cursor:pointer">
+      <input type="checkbox" id="remember" style="accent-color:#46d17e;width:14px;height:14px">记住用户名和密码
+    </label>
   </form>
 
   <div class="aux">
@@ -248,6 +251,17 @@ const user = document.getElementById('username');
 const pwd = document.getElementById('password');
 const confirmInput = document.getElementById('confirm');
 const eye = document.getElementById('eye');
+const remember = document.getElementById('remember');
+
+// 记住的用户名/密码自动回填
+(function(){
+  try {
+    const u = localStorage.getItem('remember-user');
+    if (u) { user.value = u; }
+    const p = localStorage.getItem('remember-pass');
+    if (p) { remember.checked = true; pwd.value = p; }
+  } catch (e) {}
+})();
 
 let mode = 'login';
 
@@ -298,6 +312,13 @@ form.addEventListener('submit', async (e) => {
       localStorage.setItem('username', name);
       localStorage.setItem('userId', data.userId || 0);
       localStorage.setItem('nickname', data.nickname || name);
+      if (remember.checked) {
+        localStorage.setItem('remember-user', name);
+        localStorage.setItem('remember-pass', pwd.value);
+      } else {
+        localStorage.removeItem('remember-user');
+        localStorage.removeItem('remember-pass');
+      }
       toast(data.message + '，进入游戏');
       setTimeout(() => location.href = 'lobby.html', 500);
     } else {

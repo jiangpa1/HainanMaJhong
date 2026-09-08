@@ -77,10 +77,10 @@ public final class HainanScore {
             if (s == winner) {
                 continue;
             }
-            int factor = (s == dealer || winner == dealer) ? bottom : 1;
+            int factor = (s == dealer || winner == dealer) ? bottom : cfg.basePoint;
             int pay = factor * K;
             if (r.from != null && s == r.from) {
-                pay += 1; // 点炮者/放杠家另赔 1 分
+                pay += cfg.basePoint; // 点炮者追加：始终房间初始底分
             }
             delta.put(s, delta.get(s) - pay);
             delta.put(winner, delta.get(winner) + pay);
@@ -217,10 +217,11 @@ public final class HainanScore {
 
         Map<Seat, Integer> perLoser = new EnumMap<Seat, Integer>(Seat.class);
         for (Seat s : losers) {
-            int factor = (s == dealer || winner == dealer) ? bottom : 1;
+            // 庄相关笔→当前庄底分(连庄增长)；纯闲↔闲→房间初始底分
+            int factor = (s == dealer || winner == dealer) ? bottom : cfg.basePoint;
             int pay = factor * K;
             if (r.from != null && s == r.from) {
-                pay += 1; // 点炮者另赔 1
+                pay += cfg.basePoint; // 点炮者追加：始终房间初始底分
             }
             perLoser.put(s, pay);
             total += pay;
@@ -279,7 +280,7 @@ public final class HainanScore {
                     if (s == g) {
                         continue;
                     }
-                    int factor = (s == dealer || g == dealer) ? bottom : 1;
+                    int factor = (s == dealer || g == dealer) ? bottom : cfg.basePoint;
                     sum += factor * unit;
                 }
                 if (special) {
@@ -291,7 +292,7 @@ public final class HainanScore {
                         if (s == g) {
                             continue;
                         }
-                        int factor = (s == dealer || g == dealer) ? bottom : 1;
+                        int factor = (s == dealer || g == dealer) ? bottom : cfg.basePoint;
                         delta.put(s, delta.get(s) - factor * unit);
                         delta.put(g, delta.get(g) + factor * unit);
                     }
@@ -348,11 +349,11 @@ public final class HainanScore {
             boolean hasTrue = seasons || nobles;
             if (seasons) {
                 tags.add("真花·四季");
-                collectFlower(s, cfg.flowerTrue, dealer, bottom, delta);
+                collectFlower(s, cfg.flowerTrue, dealer, bottom, cfg, delta);
             }
             if (nobles) {
                 tags.add("真花·四君子");
-                collectFlower(s, cfg.flowerTrue, dealer, bottom, delta);
+                collectFlower(s, cfg.flowerTrue, dealer, bottom, cfg, delta);
             }
             // 假花：数字 1~4 各有（大小写皆可）；有真花则归零
             if (!hasTrue) {
@@ -365,14 +366,14 @@ public final class HainanScore {
                 }
                 if (fake && cfg.flowerFake > 0) {
                     tags.add("假花");
-                    collectFlower(s, cfg.flowerFake, dealer, bottom, delta);
+                    collectFlower(s, cfg.flowerFake, dealer, bottom, cfg, delta);
                 }
             }
             // 真对花：本人两个位置花都抓到（必为同号一对）
             int off = s.stepsAfter(dealer);
             if (hasAll(fl, 34 + off, 38 + off) && cfg.pairTrueFlower > 0) {
                 tags.add("真对花");
-                collectFlower(s, cfg.pairTrueFlower, dealer, bottom, delta);
+                collectFlower(s, cfg.pairTrueFlower, dealer, bottom, cfg, delta);
             }
             // 假对花：其它号的同号一对
             for (int n = 1; n <= 4; n++) {
@@ -381,7 +382,7 @@ public final class HainanScore {
                 }
                 if (hasAll(fl, 33 + n, 37 + n) && cfg.pairFakeFlower > 0) {
                     tags.add("假对花·" + n);
-                    collectFlower(s, cfg.pairFakeFlower, dealer, bottom, delta);
+                    collectFlower(s, cfg.pairFakeFlower, dealer, bottom, cfg, delta);
                 }
             }
             if (!tags.isEmpty()) {
@@ -391,8 +392,9 @@ public final class HainanScore {
         return new Settlement(delta, notes);
     }
 
-    /** 花分：花家从另三家各收一份（含庄翻倍）。 */
-    private static void collectFlower(Seat me, int unit, Seat dealer, int bottom, Map<Seat, Integer> delta) {
+    /** 花分：花家从另三家各收一份（庄相关笔=当前庄底分；纯闲↔闲=房间初始底分）。 */
+    private static void collectFlower(Seat me, int unit, Seat dealer, int bottom, HainanConfig cfg,
+                                      Map<Seat, Integer> delta) {
         if (unit <= 0) {
             return;
         }
@@ -400,7 +402,7 @@ public final class HainanScore {
             if (s == me) {
                 continue;
             }
-            int factor = (s == dealer || me == dealer) ? bottom : 1;
+            int factor = (s == dealer || me == dealer) ? bottom : cfg.basePoint;
             delta.put(s, delta.get(s) - factor * unit);
             delta.put(me, delta.get(me) + factor * unit);
         }
