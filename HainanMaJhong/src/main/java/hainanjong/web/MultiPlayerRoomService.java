@@ -58,6 +58,10 @@ public class MultiPlayerRoomService {
     private static final long ACTION_TIMEOUT_MS = 15_000L;
     private static final long BIND_GRACE_MS = 40_000L;
 
+    /** 一手结束到下把开始的停顿（等胡牌大字/音效播完）。 */
+    private static final long HAND_END_MS = 2600L;
+    private static final long DRAW_PAUSE_MS = 1000L;
+
     private final ObjectMapper mapper = new ObjectMapper();
     private final MysqlService mysql;
     private final RedisService redis;
@@ -747,6 +751,18 @@ public class MultiPlayerRoomService {
         room.blockThread.start();
     }
 
+    /** 房间仍在对局时小睡一段（房间被解散/停止会尽早醒来）。 */
+    private void sleepQuiet(Room room, long ms) {
+        long deadline = System.currentTimeMillis() + ms;
+        while (!room.stop && room.state == State.PLAYING && System.currentTimeMillis() < deadline) {
+            try {
+                Thread.sleep(40);
+            } catch (InterruptedException e) {
+                return;
+            }
+        }
+    }
+
     /** 跑完一轮（打满四风，或从 Redis 恢复的某把续跑）；再来一轮沿用同一 session/金币继续。 */
     private void runEngine(Room room, EngineStart seed) {
         room.stop = false;
@@ -864,6 +880,8 @@ public class MultiPlayerRoomService {
                 flow.afterRound(r);
                 room.flow = flow;
                 saveRoom(room, null);
+                // 胡牌大字+音效播放完再开下一把：非流局留足时间，流局稍短
+                sleepQuiet(room, r.isDraw ? DRAW_PAUSE_MS : HAND_END_MS);
             }
 
             if (room.stop || room.state != State.PLAYING) {

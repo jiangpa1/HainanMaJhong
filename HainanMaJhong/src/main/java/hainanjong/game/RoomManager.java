@@ -585,43 +585,52 @@ public class RoomManager {
         return reportMode[s.ordinal()] != 0;
     }
 
-    /** 当前报听档：0 无 / 1 天听 / 2 地听（按可报窗口）。 */
+    /**
+     * 当前报听档：0 无 / 1 天听 / 2 地听。
+     * 天听=本局自己还没出过牌(含庄家首轮)且无人吃碰杠；地听=自己已出过牌、庄家还没出第 4 张前且无人吃碰杠。
+     */
     int reportWindow(Seat s) {
-        int myDisc = playerDiscards.get(s).size();
-        int dealerDisc = playerDiscards.get(config.dealer).size();
-        boolean tian = myDisc == 1;                     // 只出过 1 张
-        boolean di = !anyMeldThisHand && dealerDisc >= 1 && dealerDisc <= 3; // 庄首张~第4张前且无人吃碰杠
-        if (tian) {
-            return 1;
+        if (anyMeldThisHand) {
+            return 0;
         }
-        return di ? 2 : 0;
+        int myDisc = playerDiscards.get(s).size();
+        if (myDisc == 0) {
+            return 1; // 天听：自己仍未出牌（首轮，含庄家首轮）
+        }
+        int dealerDisc = playerDiscards.get(config.dealer).size();
+        return (dealerDisc >= 1 && dealerDisc <= 3) ? 2 : 0; // 地听：庄家出第 4 张前
     }
 
-    /** 手牌丢开刚摸那张后是否仍“听”（结构能胡即可，不计番）。 */
-    private boolean readyAfterDrop(Player p) {
-        if (p.lastDrawn < 0 || p.hand.size() != 14) {
-            return false;
+    /** 手牌(14张)里“打出 t 后仍听牌(结构能胡即可)”的牌面值集合。 */
+    private List<Integer> tenpaiDrops(Player p) {
+        List<Integer> out = new ArrayList<Integer>();
+        if (p.hand.size() != 14) {
+            return out;
         }
-        int[] c = new int[42];
+        int[] c = new int[HuLib.TOTAL_TILES];
         for (int t : p.hand) {
             c[t]++;
         }
-        if (c[p.lastDrawn] <= 0) {
-            return false;
-        }
-        c[p.lastDrawn]--;
-        for (int w = 0; w < 34; w++) {
-            if (c[w] >= 4) {
+        for (int t = 0; t < 34; t++) {
+            if (c[t] == 0) {
                 continue;
             }
-            c[w]++;
-            boolean ok = HuLib.canHuConcealed(c);
-            c[w]--;
-            if (ok) {
-                return true;
+            c[t]--;
+            boolean ready = false;
+            for (int w = 0; w < 34 && !ready; w++) {
+                if (c[w] >= 4) {
+                    continue;
+                }
+                c[w]++;
+                ready = HuLib.canHuConcealed(c);
+                c[w]--;
+            }
+            c[t]++;
+            if (ready) {
+                out.add(t);
             }
         }
-        return false;
+        return out;
     }
 
     private void doReport(Seat s, int mode) {
@@ -995,25 +1004,30 @@ public class RoomManager {
     // ==================== 决策请求（含超时） ====================
 
     private int requestDiscard(Player p) {
-        // 海南：已报听 → 不可换牌，自动打出刚摸那张；机器人若到报听窗口且丢刚摸那张仍听 → 自动报听
+        Seat s = p.seat;
         if (config.hainan) {
-            int cur = reportMode[p.seat.ordinal()];
+            int cur = reportMode[s.ordinal()];
             if (cur != 0) {
-                return (p.lastDrawn >= 0 && p.hand.contains(p.lastDrawn)) ? p.lastDrawn : autoDiscard(p);
-            }
-            if (p.controller.isAutoReport() && readyAfterDrop(p) && reportWindow(p.seat) != 0) {
-                doReport(p.seat, reportWindow(p.seat));
+                // 已报听（此前的回合）：锁手，抓到什么打什么
                 return (p.lastDrawn >= 0 && p.hand.contains(p.lastDrawn)) ? p.lastDrawn : autoDiscard(p);
             }
         }
-        final boolean canReport = config.hainan && reportMode[p.seat.ordinal()] == 0
-                && readyAfterDrop(p) && reportWindow(p.seat) != 0 && !p.controller.isAutoReport();
+        // 手牌里是否存在“打出某张仍听”的牌（报听资格由窗口决定，不限于刚摸那张）
+        List<Integer> ready = tenpaiDrops(p);
+        int win = config.hainan ? reportWindow(s) : 0;
+        boolean canReport = config.hainan && reportMode[s.ordinal()] == 0 && win != 0
+                && !ready.isEmpty() && !p.controller.isAutoReport();
+        if (config.hainan && p.controller.isAutoReport() && win != 0 && !ready.isEmpty()) {
+            // 机器人：到窗口且存在“打出某张仍听”→ 报听并打出其中一张
+            doReport(s, win);
+            return discardOnlyFrom(p, ready);
+        }
         final List<Integer> ban = (eatBan == null || eatBan.isEmpty()) ? null : new ArrayList<Integer>(eatBan);
         p.controller.prepareDiscard(canReport);
         final int forcedTile = ban == null ? autoDiscard(p) : autoDiscard(p, ban);
-        listener.onTurnStart(p.seat, "discard", config.discardTimeoutMs);
-        Integer chosen = prompt(p.seat, "出牌", config.discardTimeoutMs,
-                reply -> p.controller.onDiscardTurn(p.seat, new ArrayList<Integer>(p.hand), p.lastDrawn,
+        listener.onTurnStart(s, "discard", config.discardTimeoutMs);
+        Integer chosen = prompt(s, "出牌", config.discardTimeoutMs,
+                reply -> p.controller.onDiscardTurn(s, new ArrayList<Integer>(p.hand), p.lastDrawn,
                         ban == null ? new ArrayList<Integer>() : ban,
                         new Responder() {
                             public void discard(int k) {
@@ -1033,13 +1047,48 @@ public class RoomManager {
                             }
                         }),
                 forcedTile);
-        if (chosen != null && chosen == REPORT_TILE && config.hainan && reportMode[p.seat.ordinal()] == 0
-                && readyAfterDrop(p) && reportWindow(p.seat) != 0) {
-            doReport(p.seat, reportWindow(p.seat));
-            return (p.lastDrawn >= 0 && p.hand.contains(p.lastDrawn)) ? p.lastDrawn : forcedTile;
+        if (chosen != null && chosen == REPORT_TILE && canReport) {
+            doReport(s, win);
+            // 报听当轮：可在“打出后仍听”的牌里任选一张打出（其余置灰）；之后回合抓到什么打什么
+            return discardOnlyFrom(p, ready);
         }
         boolean legal = chosen != null && p.hand.contains(chosen) && (ban == null || !ban.contains(chosen));
         return legal ? chosen : forcedTile;
+    }
+
+    /** 只允许打出 allowed 里的牌（报听当轮用）；机器人即时作答，真人以置灰选择。 */
+    private int discardOnlyFrom(Player p, List<Integer> allowed) {
+        List<Integer> ban = new ArrayList<Integer>();
+        for (int t : p.hand) {
+            if (!allowed.contains(t) && !ban.contains(t)) {
+                ban.add(t);
+            }
+        }
+        p.controller.prepareDiscard(false);
+        final int forcedTile = autoDiscard(p, ban); // ban=不可打 → 只会返回 allowed 里的牌
+        listener.onTurnStart(p.seat, "discard", config.discardTimeoutMs);
+        Integer chosen = prompt(p.seat, "出牌", config.discardTimeoutMs,
+                reply -> p.controller.onDiscardTurn(p.seat, new ArrayList<Integer>(p.hand), p.lastDrawn,
+                        ban,
+                        new Responder() {
+                            public void discard(int k) {
+                                reply.accept(k);
+                            }
+
+                            public void act(Action a) {
+                                reply.accept(null);
+                            }
+
+                            public void pass() {
+                                reply.accept(null);
+                            }
+
+                            public void report() {
+                                reply.accept(null);
+                            }
+                        }),
+                forcedTile);
+        return (chosen != null && p.hand.contains(chosen) && allowed.contains(chosen)) ? chosen : forcedTile;
     }
 
     private Action requestAction(Player p, int tile, List<Action> opts) {

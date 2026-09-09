@@ -17,6 +17,7 @@ public class HainanRulesSelfTest {
         testFanTypes();
         testSettleAndFlow();
         testFlowFull();
+        testFlowFinishNew();
         testStage2Settle();
         testStage3();
         System.out.println(fail == 0 ? "\n=== 规则核心自检全部通过 ===" : "\n=== 有 " + fail + " 项失败 ===");
@@ -255,6 +256,23 @@ public class HainanRulesSelfTest {
                 return;
             }
         }
+    }
+
+    /** 打满一圈：每把都“非庄胡”强制下庄 → 应第 16 把(4 风×4 家)才结束，且结束在北风令。 */
+    static void testFlowFinishNew() {
+        HainanConfig cfg = HainanConfig.defaultConfig();
+        DealerFlow f = new DealerFlow(cfg, Seat.EAST);
+        int hands = 0;
+        while (!f.finished && hands < 40) {
+            hands++;
+            Seat winner = f.dealer.next(); // 闲胡 → 必下庄，庄位按 东→南→西→北 轮转
+            f.afterRound(hainanjong.game.RoundResult.win(winner, false, false, 0, f.dealer, null, null, null));
+            if (hands == 13) {
+                check("一圈不在第13把(首局庄第4庄下庄)提前结束", !f.finished);
+            }
+        }
+        check("一圈应第16把结束(打满东南西北四风)", f.finished && hands == 16);
+        check("一圈结束位于北风令", f.windIdx() == 3);
     }
 
     static void testStage2Settle() {
