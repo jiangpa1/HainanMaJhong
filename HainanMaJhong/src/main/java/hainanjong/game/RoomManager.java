@@ -84,10 +84,16 @@ public class RoomManager {
         }
         List<Integer> ban = new ArrayList<Integer>();
         if (b == a + 1) {
-            ban.add(a - 1); // 顺子低端补张
-            ban.add(b + 1); // 顺子高端补张
+            // 两个补张只有“与 a,b 同花色且序号 1..9 内”才存在：a-1 在 a 为该花第 1 张时越界(如 1筒-1=9万)；
+            // b+1 在 b 为该花第 9 张时越界。索引跨花色时不能当作可补顺子的牌。
+            if (a % 9 > 0) {
+                ban.add(a - 1); // 顺子低端补张
+            }
+            if (b % 9 < 8) {
+                ban.add(b + 1); // 顺子高端补张
+            }
         } else if (b == a + 2) {
-            ban.add(a + 1); // 嵌张的中间那张
+            ban.add(a + 1); // 嵌张的中间那张（与 a,b 同花色、必然有效）
         }
         return ban;
     }

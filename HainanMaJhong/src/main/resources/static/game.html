@@ -930,6 +930,7 @@ function handle(raw){
       break;
     case 'discard':
       if (msg.seat === state.mySeat) {
+        state.selfDiscards.push(msg.tile);
         log('你打出 ' + cardName(msg.tile));
       } else {
         state.opponents[msg.seat].discards.push(msg.tile);
