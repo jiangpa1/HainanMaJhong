@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>海南麻将 · 大厅</title>
-<link rel="stylesheet" href="landscape.css?v=20260908a">
+<link rel="stylesheet" href="landscape.css?v=20260908b">
 <style>
   :root {
     --gold: #d4af37;
@@ -469,6 +469,12 @@
         <li>创建房间规则框在手机竖屏下也完整可见、可滚动</li>
         <li>修复：吃后禁打按同花色判断，1、2筒吃3筒不再误禁 9万</li>
         <li>修复：多人对局中自家出的牌能正常显示在桌面</li>
+        <li>一圈判定修正：打满东南西北四风（北风令中开局庄家上家下庄才结束），不再提前收场</li>
+        <li>报听/天听/地听：天听=自己未出牌(含庄家首轮)、地听=庄家未出第4张前；存在“打出某张仍听”即可报，报听当轮只能打仍听的牌，之后抓到什么打什么</li>
+        <li>音效系统：背景音乐循环、胡牌音效（优先番型）、吃碰杠/补花/报听/聊天语音均已接入</li>
+        <li>胡牌大字去掉“点炮”字样；胡牌音效播完才开下一把</li>
+        <li>设置菜单新增“关闭音乐 / 关闭音效”（音效含 sound_effects 与 voices）</li>
+        <li>四人座位开局随机分配，进房顺序不再决定座位；下一圈座位不变</li>
       </ul>
       <h3>体验提示</h3>
       <ul>
@@ -757,6 +763,6 @@ setInterval(refreshReturn, 8000);
   if (typeof plus !== 'undefined' && plus.key) { plus.key.addEventListener('backbutton', onBack); }
 })();
 </script>
-<script src="landscape.js?v=20260908a"></script>
+<script src="landscape.js?v=20260908b"></script>
 </body>
 </html>

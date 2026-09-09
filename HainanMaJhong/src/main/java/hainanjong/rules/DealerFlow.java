@@ -10,7 +10,7 @@ import hainanjong.game.Seat;
  *   <li>首局庄随机；庄胡牌或流局(荒庄) → 连庄：底分=初始底分×(连庄次数+1)，令不变；</li>
  *   <li>非庄胡 → 下庄：新庄=原庄下家，底分重置为房间设定值（连庄次数清零）；</li>
  *   <li>“令”跟“首局庄第 2/3/4 次重新上庄”换南/西/北（连庄不推进）；</li>
- *   <li>一轮=打满四风：首局庄完成第 4 庄（第 4 次上庄那一段也下庄）即结束。</li>
+ *   <li>一轮=打满东南西北四风：北风令里开局庄家的上家下庄（庄交回首局庄）才结束。</li>
  * </ul>
  */
 public final class DealerFlow {
@@ -70,8 +70,9 @@ public final class DealerFlow {
             }
             return;
         }
-        // 下庄：若当前正是首局庄第 4 庄且在结束 → 打满四风
-        if (dealer == firstDealer && firstDealerBegins >= 4) {
+        // 下庄：打满一圈 = 打满东/南/西/北四风；须在“北风令”里由开局庄家的上家把庄交回首局庄时才结束
+        Seat upperFirst = Seat.values()[(firstDealer.ordinal() + 3) % 4]; // 上家（next 会回到 firstDealer）
+        if (dealer == upperFirst && firstDealerBegins >= 4) {
             finished = true;
         }
         dealer = dealer.next();

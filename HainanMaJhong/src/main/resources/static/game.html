@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>海南麻将 · 人机对战</title>
-<link rel="stylesheet" href="landscape.css?v=20260908a">
+<link rel="stylesheet" href="landscape.css?v=20260908b">
 <style>
   :root {
     --gold: #f7d774;
@@ -35,7 +35,7 @@
   }
 
   /* ============================================================
-     核心内容层：.scale-layer（1280×720 设计分辨率，由 landscape.js?v=20260908a 缩放居中）
+     核心内容层：.scale-layer（1280×720 设计分辨率，由 landscape.js?v=20260908b 缩放居中）
      内部元素全部用 absolute 定位，按设计分辨率坐标摆放。
      ============================================================ */
   .scale-layer { overflow: hidden; }
@@ -659,6 +659,8 @@
 </div>
 <div class="settings-menu" id="settings-menu">
   <div class="menu-item" onclick="openRecords()">📊 战绩查询</div>
+  <div class="menu-item" id="snd-music" title="背景音乐">🔊 背景音乐：开</div>
+  <div class="menu-item" id="snd-sfx" title="音效与聊天语音">🔊 音效：开</div>
   <div class="menu-item danger" id="quit-btn">🚪 退出游戏</div>
 </div>
 
@@ -923,10 +925,15 @@ function handle(raw){
         const o = state.opponents[msg.seat];
         if (o) { if (!o.flowers) o.flowers = []; o.flowers.push(msg.tile); }
       }
+      playEffect('补花');
       render();
       break;
     case 'chat':
-      if (msg.text) showChat(msg.seat, msg.text);
+      if (msg.text) {
+        showChat(msg.seat, msg.text);
+        const vn = chatVoiceOf(msg.text);
+        if (vn) playVoice(vn);
+      }
       break;
     case 'discard':
       if (msg.seat === state.mySeat) {
@@ -959,16 +966,19 @@ function handle(raw){
         upsertMeld(state.melds, msg.meld);   // 自己吃碰杠的副露也展示
         log('你 ' + meldLabel(msg.meld));
       }
+      if (msg.meld && msg.meld.type) playMeldSound(msg.meld.type);
       render();
       break;
     case 'report':
       state.report[msg.seat] = msg.mode;
+      playEffect('报听');
       render();
       break;
     case 'hu':
-      log('★ ' + NICK[msg.seat] + ' 胡牌！' + (msg.selfDraw ? '（自摸）' : '（' + NICK[msg.from] + ' 点炮）')
+      log('★ ' + NICK[msg.seat] + ' 胡牌！' + (msg.selfDraw ? '（自摸）' : '')
         + ' ' + cardName(msg.tile) + (msg.fans.length ? '  [' + msg.fans.join(',') + ']' : ''), true);
-      showHuBanner(msg); // 全员可见，并按胡的那家方位显示
+      showHuBanner(msg);
+      playHuSound(msg);
       break;
     case 'end':
       state.ended = true;
@@ -1357,7 +1367,7 @@ function flowerHtmlOf(d){ return (d.flowers || []).map(f => tImg(f)).join(''); }
 function flowerShown(d){ return ((d.notes || []).some(n => /花/.test(n))); }
 function rcScoreHtml(sc){ const cls = sc > 0 ? 'win' : (sc < 0 ? 'lose' : 'zero'); return `<span class="rc-score ${cls}">${sc > 0 ? '+' : ''}${sc}</span>`; }
 
-// 胡牌大字：全员可见，并按胡的那家方位显示（先 1 秒“自摸/杠开/点炮”，再 1 秒番型）
+// 胡牌大字：全员可见，并按胡的那家方位显示（先 1 秒“自摸/杠开”，再 1 秒番型；点炮不显示“点炮”字样）
 let huBannerT1 = null, huBannerT2 = null;
 function showHuBanner(msg){
   const el = document.getElementById('hu-banner');
@@ -1368,13 +1378,84 @@ function showHuBanner(msg){
   // 本地方位：EAST=自己(下/中) SOUTH=右 WEST=上 NORTH=左
   const dir = s === 'SOUTH' ? 'right' : s === 'WEST' ? 'top' : s === 'NORTH' ? 'left' : 'me';
   el.className = 'hu-banner po-' + dir;
-  const first = msg.selfDraw ? (msg.ganKai ? '杠开' : '自摸') : '点炮';
+  const first = msg.selfDraw ? (msg.ganKai ? '杠开' : '自摸') : '';
   const second = (msg.fans && msg.fans.length) ? msg.fans.join('、') : '平胡';
-  el.innerHTML = '<span>' + first + '</span>';
+  const show = (txt) => { el.innerHTML = '<span>' + txt + '</span>'; };
   requestAnimationFrame(() => el.classList.add('show'));
-  huBannerT1 = setTimeout(() => { el.innerHTML = '<span>' + second + '</span>'; }, 1000);
-  huBannerT2 = setTimeout(() => el.classList.remove('show'), 2000);
+  if (first) {
+    show(first);
+    huBannerT1 = setTimeout(() => show(second), 1000);
+  } else {
+    show(second); // 点炮胡直接显示番型，不显示“点炮”
+  }
+  huBannerT2 = setTimeout(() => el.classList.remove('show'), first ? 2000 : 1400);
 }
+
+// ===== 音频（背景音乐 / 音效 / 聊天语音） =====
+const SND = {
+  music: localStorage.getItem('sndMusic') !== '0',
+  sfx: localStorage.getItem('sndSfx') !== '0'
+};
+let bgm = null;
+function playOnce(url, vol){
+  if (!SND.sfx) return;
+  try { const a = new Audio(url); if (vol) a.volume = vol; a.play().catch(function(){}); } catch (e) {}
+}
+function playEffect(name){ if (SND.sfx) playOnce('music/sound_effects/' + encodeURIComponent(name) + '.mp3', 0.9); }
+function playVoice(name){ if (SND.sfx) playOnce('music/voices/' + encodeURIComponent(name) + '.mp3', 0.9); }
+function playBgm(){
+  if (!SND.music) return;
+  try {
+    if (!bgm) { bgm = new Audio('music/background.mp3'); bgm.loop = true; bgm.volume = 0.45; }
+    if (bgm.paused) bgm.play().catch(function(){});
+  } catch (e) {}
+}
+function pauseBgm(){ try { if (bgm && !bgm.paused) bgm.pause(); } catch (e) {} }
+// 胡牌音效：优先特殊番型，其次 杠开/自摸，普通(点炮/平胡)用平胡
+function huSoundName(msg){
+  const fans = msg.fans || [];
+  const prio = ['天胡','十三幺','龙七对','七对','碰碰胡','清一色','混一色'];
+  for (let i = 0; i < prio.length; i++) {
+    if (fans.indexOf(prio[i]) >= 0) return prio[i] === '龙七对' ? '龙七' : prio[i];
+  }
+  if (msg.ganKai) return '杠开';
+  if (msg.selfDraw) return '自摸';
+  return '平胡';
+}
+function playHuSound(msg){ playEffect(huSoundName(msg)); }
+function playMeldSound(type){ playEffect(type === 'CHI' ? '吃' : (type === 'PENG' ? '碰' : '杠')); }
+const VOICE_PHRASES = ['快点啊~等得我花儿都谢了','注意啦！','窃听风云！','不必理会','闹麻','气不气','很气很气'];
+function chatVoiceOf(text){
+  return VOICE_PHRASES.indexOf(text) >= 0 ? text : null;
+}
+// 背景音乐：浏览器自动播放限制，首次触摸/点击时才开始
+document.addEventListener('pointerdown', function onceBgm(){ playBgm(); }, { once: true });
+
+// 设置里的声音开关
+function syncSndUi(){
+  const bm = document.getElementById('snd-music');
+  const sf = document.getElementById('snd-sfx');
+  if (bm) bm.textContent = SND.music ? '🔊 背景音乐：开' : '🔇 背景音乐：关';
+  if (sf) sf.textContent = SND.sfx ? '🔊 音效：开' : '🔇 音效：关';
+}
+function toggleMusic(){
+  SND.music = !SND.music;
+  localStorage.setItem('sndMusic', SND.music ? '1' : '0');
+  if (SND.music) playBgm(); else pauseBgm();
+  syncSndUi();
+}
+function toggleSfx(){
+  SND.sfx = !SND.sfx;
+  localStorage.setItem('sndSfx', SND.sfx ? '1' : '0');
+  syncSndUi();
+}
+(function(){
+  const bm = document.getElementById('snd-music');
+  const sf = document.getElementById('snd-sfx');
+  if (bm) bm.addEventListener('click', toggleMusic);
+  if (sf) sf.addEventListener('click', toggleSfx);
+  syncSndUi();
+})();
 
 // ===== 工具 =====
 function tileImg(t){ return `<img src="img/tiles/${t}.png" alt="${cardName(t)}">`; }
@@ -1636,6 +1717,6 @@ connect();
   if (typeof plus !== 'undefined' && plus.key) { plus.key.addEventListener('backbutton', onBack); }
 })();
 </script>
-<script src="landscape.js?v=20260908a"></script>
+<script src="landscape.js?v=20260908b"></script>
 </body>
 </html>
