@@ -447,7 +447,9 @@ public class MultiPlayerRoomService {
             } while (roomsByCode.containsKey(code));
             room = new Room(code, userId);
             room.cfg = parseConfig(cfgRaw);
-            room.members.put(Seat.EAST, new Member(Seat.EAST, userId, nicknameOf(userId), session));
+            // 房主随机入座（而不是固定东），使整桌座位与进房顺序无关
+            Seat seat0 = Seat.values()[random.nextInt(4)];
+            room.members.put(seat0, new Member(seat0, userId, nicknameOf(userId), session));
             roomsByCode.put(code, room);
         }
         codeByUser.put(userId, code);
@@ -510,7 +512,7 @@ public class MultiPlayerRoomService {
                 return;
             }
 
-            Seat seat = nextFreeSeat(room);
+            Seat seat = randomFreeSeat(room); // 随机从空位选座，而非按进房顺序
             Member displaced = null;
             if (seat == null) {
                 seat = firstBotSeat(room); // 已有人机补齐：真人加入顶替一个电脑位
@@ -1603,13 +1605,18 @@ public class MultiPlayerRoomService {
         return room.members.size();
     }
 
-    private static Seat nextFreeSeat(Room room) {
+    /** 从当前空位中随机挑一个（座位随机分配，与进房顺序无关）；无空位返回 null。 */
+    private Seat randomFreeSeat(Room room) {
+        List<Seat> free = new ArrayList<Seat>();
         for (Seat s : Seat.values()) {
             if (!room.members.containsKey(s)) {
-                return s;
+                free.add(s);
             }
         }
-        return null;
+        if (free.isEmpty()) {
+            return null;
+        }
+        return free.get(random.nextInt(free.size()));
     }
 
     /** 真人数（不含补位电脑）。 */
