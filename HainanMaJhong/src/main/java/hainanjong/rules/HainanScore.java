@@ -41,14 +41,24 @@ public final class HainanScore {
         if (r.isDraw || r.winner == null) {
             return new ArrayList<FanType>();
         }
-        List<FanType> fans = new ArrayList<FanType>(HainanFan.multiplierFans(envOf(r)));
-        if (r.tianHu) {
+        return withTianFans(HainanFan.multiplierFans(envOf(r)), r.tianHu, r.winnerBaoTing);
+    }
+
+    /**
+     * 拼装最终番型：结构番型 + 天胡/天听/地听（它们也是番型）；命中多个时去掉“平胡”兜底（平胡只在无其它番型时出现）。
+     */
+    private static List<FanType> withTianFans(List<FanType> base, boolean tianHu, int baoTing) {
+        List<FanType> fans = new ArrayList<FanType>(base);
+        if (tianHu) {
             fans.add(FanType.TIAN_HU);
         }
-        if (r.winnerBaoTing == 1) {
+        if (baoTing == 1) {
             fans.add(FanType.TIAN_TING);
-        } else if (r.winnerBaoTing == 2) {
+        } else if (baoTing == 2) {
             fans.add(FanType.DI_TING);
+        }
+        if (fans.size() > 1) {
+            fans.remove(FanType.PING_HU); // 天胡/天听/地听 等不得与平胡叠加
         }
         return fans;
     }
@@ -102,9 +112,10 @@ public final class HainanScore {
         return new RuleEnv(counts, melds, new ArrayList<Integer>(), 0, 0, false, false);
     }
 
-    /** 按“暗牌手牌 + 胡到的那张 + 副露 + 花”直接算结算番型（广播/展示用）。 */
+    /** 按“暗牌手牌 + 胡到的那张 + 副露 + 花”算广播/展示用番型（含 天胡/天听/地听；与平胡互斥）。 */
     public static List<FanType> fansOfHand(List<Integer> hand, List<Meld> melds,
-                                           List<Integer> flowers, int extraWinTile) {
+                                           List<Integer> flowers, int extraWinTile,
+                                           boolean tianHu, int baoTing) {
         int[] counts = new int[34];
         if (hand != null) {
             for (int t : hand) {
@@ -118,7 +129,8 @@ public final class HainanScore {
         }
         List<Meld> m = melds == null ? new ArrayList<Meld>() : melds;
         List<Integer> f = flowers == null ? new ArrayList<Integer>() : flowers;
-        return HainanFan.multiplierFans(new RuleEnv(counts, m, f, 0, 0, false, false));
+        return withTianFans(HainanFan.multiplierFans(new RuleEnv(counts, m, f, 0, 0, false, false)),
+                tianHu, baoTing);
     }
 
     // ==================== 阶段2：杠钱/花分/包牌代付 完整结算 ====================

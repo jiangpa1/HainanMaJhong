@@ -164,7 +164,7 @@ public class RoomManager {
             public void onMeld(Seat s, Meld m) {
             }
 
-            public void onHu(Seat s, HuResult r, boolean sd, int t, Seat f) {
+            public void onHu(Seat s, HuResult r, boolean sd, boolean th, int bt, int t, Seat f) {
             }
 
             public void onTimeout(Seat s, String a) {
@@ -950,10 +950,11 @@ public class RoomManager {
         Collections.sort(hand);
         // 副露（杠按 4 张，保持原样）
         List<Meld> melds = new ArrayList<Meld>(p.melds);
+        boolean tianHu = config.hainan && selfDraw && totalDiscards == 0;
+        int baoTing = reportMode[p.seat.ordinal()];
         result = RoundResult.winFull(p.seat, selfDraw, selfDraw && lastDrawKongFlower,
-                config.hainan && selfDraw && totalDiscards == 0, reportMode[p.seat.ordinal()],
-                winTile, from, res, hand, melds);
-        listener.onHu(p.seat, res, selfDraw, winTile, from);
+                tianHu, baoTing, winTile, from, res, hand, melds);
+        listener.onHu(p.seat, res, selfDraw, tianHu, baoTing, winTile, from);
     }
 
     /** 补杠被抢：从离杠家最近者起逐个询问能否胡；有人胡即结束本把。 */
@@ -996,9 +997,10 @@ public class RoomManager {
         hand.add(tile);
         Collections.sort(hand);
         List<Meld> melds = new ArrayList<Meld>(winner.melds);
+        int bqt = reportMode[winner.seat.ordinal()];
         result = RoundResult.qiangWinFull(winner.seat, tile, ganger.seat, false,
-                reportMode[winner.seat.ordinal()], res, hand, melds);
-        listener.onHu(winner.seat, res, false, tile, ganger.seat);
+                bqt, res, hand, melds);
+        listener.onHu(winner.seat, res, false, false, bqt, tile, ganger.seat);
     }
 
     // ==================== 决策请求（含超时） ====================

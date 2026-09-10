@@ -18,7 +18,7 @@ public interface GameListener {
 
     void onMeld(Seat seat, Meld meld);
 
-    void onHu(Seat seat, HuResult result, boolean selfDraw, int tile, Seat from);
+    void onHu(Seat seat, HuResult result, boolean selfDraw, boolean tianHu, int baoTing, int tile, Seat from);
 
     void onTimeout(Seat seat, String action);
 

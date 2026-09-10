@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>海南麻将 · 大厅</title>
-<link rel="stylesheet" href="landscape.css?v=20260908b">
+<link rel="stylesheet" href="landscape.css?v=20260908c">
 <style>
   :root {
     --gold: #d4af37;
@@ -475,6 +475,7 @@
         <li>胡牌大字去掉“点炮”字样；胡牌音效播完才开下一把</li>
         <li>设置菜单新增“关闭音乐 / 关闭音效”（音效含 sound_effects 与 voices）</li>
         <li>四人座位开局随机分配，进房顺序不再决定座位；下一圈座位不变</li>
+        <li>天胡/天听/地听 作为番型并入结算与展示（胡牌大字、战绩均显示），且不与平胡叠加</li>
       </ul>
       <h3>体验提示</h3>
       <ul>
@@ -763,6 +764,6 @@ setInterval(refreshReturn, 8000);
   if (typeof plus !== 'undefined' && plus.key) { plus.key.addEventListener('backbutton', onBack); }
 })();
 </script>
-<script src="landscape.js?v=20260908b"></script>
+<script src="landscape.js?v=20260908c"></script>
 </body>
 </html>

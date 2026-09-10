@@ -16,7 +16,7 @@ public class EngineSmokeTest {
         public void onFlower(Seat s, int t) {}
         public void onDiscard(Seat s, int t) {}
         public void onMeld(Seat s, Meld m) {}
-        public void onHu(Seat s, HuResult r, boolean sd, int t, Seat f) {}
+        public void onHu(Seat s, HuResult r, boolean sd, boolean th, int bt, int t, Seat f) {}
         public void onTimeout(Seat s, String a) {}
         public void onRoundDraw() {}
         public void onResume() {}
