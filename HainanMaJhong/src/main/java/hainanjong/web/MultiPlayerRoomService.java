@@ -1103,18 +1103,22 @@ public class MultiPlayerRoomService {
             sendHand(seat);
         }
 
-        @Override public void onHu(Seat seat, HuResult result, boolean selfDraw, int tile, Seat from) {
+        @Override public void onHu(Seat seat, HuResult result, boolean selfDraw,
+                                   boolean tianHu, int baoTing, int tile, Seat from) {
             Map<String, Object> m = new HashMap<String, Object>();
             m.put("type", "hu");
             m.put("seat", seat.name());
             m.put("selfDraw", selfDraw);
             m.put("tile", tile);
             m.put("from", from == null ? null : from.name());
+            m.put("tianHu", tianHu);
+            m.put("baoTing", baoTing);
             List<String> fans = new ArrayList<String>();
             if (rm != null) {
                 Player p = rm.getPlayer(seat);
                 if (p != null) {
-                    for (FanType f : HainanScore.fansOfHand(p.hand, p.melds, p.flowers, tile)) {
+                    // 天胡/天听/地听也是番型，与其他番型一并展示（且不与平胡叠加）
+                    for (FanType f : HainanScore.fansOfHand(p.hand, p.melds, p.flowers, tile, tianHu, baoTing)) {
                         fans.add(f.toString());
                     }
                 }

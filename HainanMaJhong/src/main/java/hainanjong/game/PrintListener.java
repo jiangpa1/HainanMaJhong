@@ -59,9 +59,12 @@ public class PrintListener implements GameListener {
     }
 
     @Override
-    public void onHu(Seat seat, HuResult result, boolean selfDraw, int tile, Seat from) {
+    public void onHu(Seat seat, HuResult result, boolean selfDraw, boolean tianHu, int baoTing, int tile, Seat from) {
         String s = "  ★ " + seat + " 胡牌！" + (selfDraw ? "（自摸 " + HuLib.cardName(tile) + "）" : "（" + from + " 点炮 " + HuLib.cardName(tile) + "）");
         s += "  番型=" + result.fanTypes;
+        if (tianHu) s += " 天胡";
+        if (baoTing == 1) s += " 天听";
+        if (baoTing == 2) s += " 地听";
         if (result.flowerCount > 0) s += "，花牌x" + result.flowerCount;
         log(s);
     }

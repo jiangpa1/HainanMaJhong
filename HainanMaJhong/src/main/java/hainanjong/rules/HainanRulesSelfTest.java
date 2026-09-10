@@ -323,11 +323,13 @@ public class HainanRulesSelfTest {
                 Seat.EAST, true, false, true, 1, -1, null, null, ph, new ArrayList<Meld>());
         java.util.List<FanType> f1 = HainanScore.multFans(r1);
         check("天胡+天听 计入番型", f1.contains(FanType.TIAN_HU) && f1.contains(FanType.TIAN_TING));
+        check("天胡/天听 不与平胡叠加", !f1.contains(FanType.PING_HU));
         int sum1 = HainanScore.multSum(r1, cfg);
-        check("平胡1+天胡5+天听4=10", sum1 == 10);
+        check("天胡5+天听4=9(不含平胡)", sum1 == 9);
 
         hainanjong.game.RoundResult r2 = hainanjong.game.RoundResult.winFull(
                 Seat.WEST, false, false, false, 2, 17, Seat.NORTH, null, ph, new ArrayList<Meld>());
         check("地听(点炮)计入", HainanScore.multFans(r2).contains(FanType.DI_TING));
+        check("地听 不与平胡叠加", !HainanScore.multFans(r2).contains(FanType.PING_HU));
     }
 }
