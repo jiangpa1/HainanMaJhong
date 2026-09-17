@@ -18,6 +18,13 @@ out/
 *.iml
 .vscode/
 
+# ---- Eclipse ----
+.settings/
+.classpath
+.project
+.apt_generated
+.factorypath
+
 # ---- 系统 ----
 .DS_Store
 Thumbs.db
