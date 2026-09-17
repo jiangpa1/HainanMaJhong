@@ -24,7 +24,7 @@
   - 端口默认 **8080**，无 context-path
   - MySQL：`DB_URL`(默认本机 hainan_majong 库) / `DB_USERNAME`(默认 root) / `DB_PASSWORD`(默认空)
   - Redis：`REDIS_HOST`(默认 localhost) / `REDIS_PORT`(默认 6379) / `REDIS_PASSWORD`(默认空)
-  - ⚠️ 本地未提交改动：你（用户）又把默认值改回 `***REMOVED******REMOVED***`（`${DB_PASSWORD:***REMOVED******REMOVED***}` 等）。**该改动尚未提交**；提交会把凭据带回仓库，建议本地用环境变量或本地覆盖文件，勿入库。
+  - ⚠️ 本地开发时曾把默认值填成真实凭据（**已清理，勿再如此**）。请始终保留 `${DB_PASSWORD:}` 这类**空默认值** —— 故意不给默认值是为了"忘记配环境变量时启动失败"，而不是带着明文密码跑起来。凭据只从环境变量或本地覆盖文件读取，**切勿入库**。
   - RedisService 用 `room:{id}` 存 30 分钟
 - 已加根目录 `.gitignore`（忽略 target/ out/ *.docx ~$* .idea/ *.iml .claude/settings.local.json 等）；已从版本库移除 target/ out/ .idea/ *.iml *.docx 与本地 settings.local.json，并物理清理了 `HainanMaJhong/target`、`HainanMaJhong/out`
 - 服务启动需要 MySQL/Redis 可达；Redis 不可达会自动降级（游戏照常，只是无快照续玩）
