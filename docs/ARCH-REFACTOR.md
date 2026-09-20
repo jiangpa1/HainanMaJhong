@@ -58,6 +58,9 @@ HainanMaJhong/src/main/java/hainanjong/          ← Spring 扫描根
 
 ## 2. 目标态包结构（对齐 Learning，7 层）
 
+> **阶段 1 完成度（2026-09-20 实测，commit `c9edd8c`）**：✅ 已就位 = `config/ controller/ websocket/ engine/{model,port,bot,dev} repository/RoomSnapshotRepository`；⏳ 未做 = `common/`、`service/` 的接口拆分（`RoomService`/`GameService`/`UserService`/`RecordService`）、`repository/` 的 `UserRepository`/`GameRecordRepository`、`domain/`。
+> 即：**物理分层已完成，业务拆分留待阶段 2/3**。另有 3 处与本文设计不同的地方，见 §11。
+
 ```
 HainanMaJhong/src/main/java/hainanjong/
 ├── HainanMaJhongApplication.java        ← 启动类留在根（扫描根，不能挪走）
@@ -495,9 +498,43 @@ refactor(arch): 阶段1 纯物理搬包，对齐 Learning 分层
 
 | 阶段 | 日期 | commit | 实际耗时 | 遇到的问题 / 与设计的偏差 |
 | --- | --- | --- | --- | --- |
-| 0 安全网 | | | | |
-| 1 纯搬包 | | | | |
+| 0 安全网 | 2026-09-20 | `4fbb803` | ~2.5 h | ① 浏览器抓包两轮均不完整（Ctrl+A 只复制可见行）→ **改用服务端录制**（新增临时 `WsRecorder`）；② 录制初版写错目录（相对路径按进程工作目录解析）；③ `application.yml` 默认值被手工改成虚拟机 IP → 已回退；④ 端口被占导致一次无效重启。见 `docs/baseline-status.md` 与 `docs/stage0-CHANGES.md` |
+| 1 纯搬包 | 2026-09-20 | `c9edd8c` | ~1.5 h | **设计偏差 3 处**（见下 §11） |
 | 2 拆 Service | | | | |
 | 3 统一出口 | | | | |
 | 4 横切层 | | | | |
 | 5 测试清理 | | | | |
+
+## 11. 阶段 1 实测结论与设计偏差（回填）
+
+### 验收结果 —— 全部通过
+
+| 判据 | 结果 |
+| --- | --- |
+| `mvn -B clean package` | ✅ `BUILD SUCCESS`，38 文件 |
+| package 与目录一致 | ✅ 0 不一致（脚本校验） |
+| 行数 | 6679 → **6791（+112）** = 新增 import 26 处 + 分隔空行 + 注释，**无一行逻辑** |
+| `git diff` 逐行复核 | ✅ 仅「类名 / 字段名 / 全限定名 / import / 注释」5 类 |
+| HTTP 端点 | ✅ `/`、`/lobby.html`、`/game.html`、`/api/room/pending`、`/api/records`、`/download/app` 全 200 |
+| WebSocket 端点 | ✅ `/room`、`/game` 均 `101 Switching Protocols` |
+| **协议 diff** | ✅ **20 种共有类型的字段名集合零差异**；未丢失任何类型；另新捕获 `join_denied`/`room_closed`（**22/23 类型覆盖**） |
+| 重命名历史 | ✅ git 识别 26 个 rename（相似度 71%~99%），`--follow` 可追溯 |
+| 临时件清除 | ✅ `WsRecorder` 及其 3 处调用点 + 1 行 import 全部删除，`git grep WsRecorder` = 0 |
+
+协议 diff 由 `docs/compare-ws-recordings.ps1` 产出（基线 `docs/ws-recording.log` 822 帧 vs 搬包后 816 帧）。最容易被搬包破坏的三处均保持原样：`board` 的 `discards,flowers,melds,type`、两种形态的 `counts`（带/不带 `wall`）、`request` 的多种变体。
+
+### 与设计的偏差（3 处，均需在阶段 2 修正文档）
+
+| # | 设计里写的 | 实际做的 | 原因 |
+| --- | --- | --- | --- |
+| 1 | 临时录制钩子放在 `web/WsRecorder.java` | 放在 **`hainanjong.diag`** 包 | `MultiPlayerRoomService` 搬到了 `service` 包，跨包引用需要 `public`；放进独立 `diag` 包让"临时"在结构上一目了然，也避免 `web/` 留个孤儿包 |
+| 2 | `service/RedisService` → `repository/RoomSnapshotRepository` | ✅ 做了，但**类名变了而字段名 `redis` 保留** | 字段名有 20+ 调用点，改名收益低风险高 —— 阶段 2 用接口重构时再动 |
+| 3 | §7 的"核对 11 个 Spring bean" | 未能从日志核对（本项目不打 bean 列表） | 改用**端点存活 + WS 握手**作为更强的证据（bean 没注册端点必然 404/握手失败）。若阶段 4 引入 actuator 后可补回这条 |
+
+### 本阶段新增的踩坑（建议并入 `HANDOFF.md` §九）
+
+1. **`Set-Content -Encoding UTF8` 会写 BOM** → `javac` 报 `非法字符: '\ufeff'`，31 个文件受害。修法：`[System.IO.File]::WriteAllLines($p, $lines, (New-Object System.Text.UTF8Encoding($false)))`。
+2. **`cd` 只影响 PowerShell 当前位置，不影响 .NET 的 `[System.IO.File]`** —— 后者按**进程工作目录**解析相对路径。用 `File.ReadAllLines("相对路径")` 会去 `C:\Users\ASUS\Desktop\java` 找文件。
+3. **PowerShell 按点号拆分 `-D` 参数** → `-Dws.record.file=...` 必须整体加引号（`'-Dws.record.file=F:\...'`），否则 Java 收到 `-Dws` + `.record.file=...`，报 `ClassNotFoundException: /record/file=...`。
+4. **子包不再同包可见**：`game/*` 拆进 `engine/{model,port,bot,dev}` 后，**9 个文件**需要新增 import（`RoomManager`、`GameListener`、`PlayerController`、`Responder`、`BotController`、`Player`、`PrintListener`、`GameDemo`、`EngineSmokeTest`）。用脚本按"类名引用 vs 现有 import"自动检测比手工找可靠。
+5. **改文件后用 `Select-String` 自查是必要的**：本轮出现过一次"脚本打印了'已补 import'但实际没写进去"（PowerShell 中 `.Replace()` 返回值未接收）—— **脚本的成功消息不能替代事后校验**。
