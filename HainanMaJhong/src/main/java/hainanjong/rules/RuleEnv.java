@@ -1,7 +1,7 @@
 package hainanjong.rules;
 
-import hainanjong.game.Meld;
-import hainanjong.game.Seat;
+import hainanjong.engine.model.Meld;
+import hainanjong.engine.model.Seat;
 
 import java.util.Collections;
 import java.util.List;

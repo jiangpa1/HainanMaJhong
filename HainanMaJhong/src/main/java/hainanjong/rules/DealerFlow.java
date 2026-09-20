@@ -1,7 +1,7 @@
 package hainanjong.rules;
 
-import hainanjong.game.RoundResult;
-import hainanjong.game.Seat;
+import hainanjong.engine.model.RoundResult;
+import hainanjong.engine.model.Seat;
 
 /**
  * 海南规则“坐庄/荒庄/令/底分”的房间级推进状态机。

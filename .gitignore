@@ -39,3 +39,9 @@ docs/stage1-*
 docs/local-*
 backup-arch/
 commit-stage1.txt
+
+docs/*.txt
+docs/ws-recording*.log
+
+docs/stage1-*.log
+docs/*-run.log

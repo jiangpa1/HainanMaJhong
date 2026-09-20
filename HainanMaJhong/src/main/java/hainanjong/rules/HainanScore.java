@@ -1,9 +1,9 @@
 package hainanjong.rules;
 
 import hainanjong.FanType;
-import hainanjong.game.Meld;
-import hainanjong.game.RoundResult;
-import hainanjong.game.Seat;
+import hainanjong.engine.model.Meld;
+import hainanjong.engine.model.RoundResult;
+import hainanjong.engine.model.Seat;
 
 import java.util.ArrayList;
 import java.util.EnumMap;

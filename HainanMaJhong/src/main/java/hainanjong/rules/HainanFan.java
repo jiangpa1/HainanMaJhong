@@ -2,7 +2,7 @@ package hainanjong.rules;
 
 import hainanjong.FanType;
 import hainanjong.HuLib;
-import hainanjong.game.Meld;
+import hainanjong.engine.model.Meld;
 
 import java.util.ArrayList;
 import java.util.List;

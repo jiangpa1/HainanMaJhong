@@ -1,8 +1,8 @@
 package hainanjong.rules;
 
 import hainanjong.FanType;
-import hainanjong.game.Meld;
-import hainanjong.game.Seat;
+import hainanjong.engine.model.Meld;
+import hainanjong.engine.model.Seat;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -165,7 +165,7 @@ public class HainanRulesSelfTest {
         java.util.List<Meld> none = new ArrayList<Meld>();
 
         // A) 庄底分2，庄(EAST)点炮给闲(SOUTH)，平胡无杠 → 庄 -3，另两闲各 -1，赢家 +5
-        hainanjong.game.RoundResult ra = hainanjong.game.RoundResult.win(
+        hainanjong.engine.model.RoundResult ra = hainanjong.engine.model.RoundResult.win(
                 Seat.SOUTH, false, false, 17, Seat.EAST, null, ph, none);
         java.util.Map<Seat, Integer> da = HainanScore.settle(ra, Seat.EAST, 2, cfg);
         check("A 庄付3", da.get(Seat.EAST) == -3);
@@ -173,7 +173,7 @@ public class HainanRulesSelfTest {
         check("A 赢家收5", da.get(Seat.SOUTH) == 5);
 
         // B) 庄底分2，闲(SOUTH)自摸平胡 → 庄付4，两闲各付2，赢家收8
-        hainanjong.game.RoundResult rb = hainanjong.game.RoundResult.win(
+        hainanjong.engine.model.RoundResult rb = hainanjong.engine.model.RoundResult.win(
                 Seat.SOUTH, true, false, -1, null, null, ph, none);
         java.util.Map<Seat, Integer> db = HainanScore.settle(rb, Seat.EAST, 2, cfg);
         check("B 庄付4", db.get(Seat.EAST) == -4);
@@ -181,7 +181,7 @@ public class HainanRulesSelfTest {
         check("B 赢家收8", db.get(Seat.SOUTH) == 8);
 
         // C) 流局不结算
-        hainanjong.game.RoundResult rc = hainanjong.game.RoundResult.draw();
+        hainanjong.engine.model.RoundResult rc = hainanjong.engine.model.RoundResult.draw();
         java.util.Map<Seat, Integer> dc = HainanScore.settle(rc, Seat.EAST, 2, cfg);
         int zero = dc.get(Seat.EAST) + dc.get(Seat.SOUTH) + dc.get(Seat.WEST) + dc.get(Seat.NORTH);
         check("C 流局0", zero == 0);
@@ -189,9 +189,9 @@ public class HainanRulesSelfTest {
         // D) 庄流：EAST首庄；EAST输给SOUTH → 下庄 new=SOUTH,底分重置1,令仍东；SOUTH连赢→底分2令不变
         DealerFlow flow = new DealerFlow(cfg, Seat.EAST);
         check("D 首把底分=配置1", flow.bottom == 1 && flow.windIdx == 0);
-        flow.afterRound(hainanjong.game.RoundResult.win(Seat.SOUTH, false, false, 0, Seat.EAST, null, null, null));
+        flow.afterRound(hainanjong.engine.model.RoundResult.win(Seat.SOUTH, false, false, 0, Seat.EAST, null, null, null));
         check("D 下庄给SOUTH", flow.dealer == Seat.SOUTH && flow.bottom == 1 && flow.windIdx == 0);
-        flow.afterRound(hainanjong.game.RoundResult.win(Seat.SOUTH, true, false, -1, null, null, null, null));
+        flow.afterRound(hainanjong.engine.model.RoundResult.win(Seat.SOUTH, true, false, -1, null, null, null, null));
         check("D 庄自摸连庄底分+1", flow.dealer == Seat.SOUTH && flow.bottom == 2 && flow.windIdx == 0);
 
         // E) 乘算底分：初始底分 2 → 连庄后 4/6/8（=底分×(连庄次数+1)），下庄回 2
@@ -199,20 +199,20 @@ public class HainanRulesSelfTest {
         cfg2.basePoint = 2;
         DealerFlow f2 = new DealerFlow(cfg2, Seat.EAST);
         check("E 首把底分=2", f2.bottom == 2 && f2.consecutiveKeeps() == 0);
-        f2.afterRound(hainanjong.game.RoundResult.win(Seat.SOUTH, false, false, 0, Seat.EAST, null, null, null));
+        f2.afterRound(hainanjong.engine.model.RoundResult.win(Seat.SOUTH, false, false, 0, Seat.EAST, null, null, null));
         check("E 下庄给SOUTH 底分回2", f2.dealer == Seat.SOUTH && f2.bottom == 2);
-        f2.afterRound(hainanjong.game.RoundResult.win(Seat.SOUTH, true, false, -1, null, null, null, null));
+        f2.afterRound(hainanjong.engine.model.RoundResult.win(Seat.SOUTH, true, false, -1, null, null, null, null));
         check("E 连庄1 底分4", f2.bottom == 4 && f2.consecutiveKeeps() == 1);
-        f2.afterRound(hainanjong.game.RoundResult.win(Seat.SOUTH, true, false, -1, null, null, null, null));
+        f2.afterRound(hainanjong.engine.model.RoundResult.win(Seat.SOUTH, true, false, -1, null, null, null, null));
         check("E 连庄2 底分6", f2.bottom == 6 && f2.consecutiveKeeps() == 2);
-        f2.afterRound(hainanjong.game.RoundResult.draw());
+        f2.afterRound(hainanjong.engine.model.RoundResult.draw());
         check("E 流局连庄 底分8", f2.dealer == Seat.SOUTH && f2.bottom == 8 && f2.consecutiveKeeps() == 3);
 
         // F) 新口径：庄笔=当前庄底分、闲笔=房间初始底分、点炮追加=初始底分
         //    底分2且庄连庄一次(当前4)：闲自摸平胡 → 庄付8、两闲各付4、赢家收16
         HainanConfig cfg3 = HainanConfig.defaultConfig();
         cfg3.basePoint = 2;
-        hainanjong.game.RoundResult rf = hainanjong.game.RoundResult.win(
+        hainanjong.engine.model.RoundResult rf = hainanjong.engine.model.RoundResult.win(
                 Seat.SOUTH, true, false, -1, null, null, ph, none);
         java.util.Map<Seat, Integer> df = HainanScore.settle(rf, Seat.EAST, 4, cfg3);
         check("F 庄付8", df.get(Seat.EAST) == -8);
@@ -220,7 +220,7 @@ public class HainanRulesSelfTest {
         check("F 赢家收16", df.get(Seat.SOUTH) == 16);
 
         // G) 底分2未连庄：闲接庄点炮平胡 → 庄=份额2+追加2=4、闲各2、赢家收8
-        hainanjong.game.RoundResult rg = hainanjong.game.RoundResult.win(
+        hainanjong.engine.model.RoundResult rg = hainanjong.engine.model.RoundResult.win(
                 Seat.WEST, false, false, 0, Seat.EAST, null, ph, none);
         java.util.Map<Seat, Integer> dg = HainanScore.settle(rg, Seat.EAST, 2, cfg3);
         check("G 庄点炮付4", dg.get(Seat.EAST) == -4);
@@ -243,11 +243,11 @@ public class HainanRulesSelfTest {
                 maxWind = Math.max(maxWind, f.windIdx);
                 int kind = rnd.nextInt(4);
                 if (kind == 0) {
-                    f.afterRound(hainanjong.game.RoundResult.draw());
+                    f.afterRound(hainanjong.engine.model.RoundResult.draw());
                 } else {
                     Seat w = Seat.values()[rnd.nextInt(4)];
                     boolean self = rnd.nextBoolean();
-                    f.afterRound(hainanjong.game.RoundResult.win(w, self, false, -1, null, null, null, null));
+                    f.afterRound(hainanjong.engine.model.RoundResult.win(w, self, false, -1, null, null, null, null));
                 }
             }
             check("四风仿真 #" + t + " 能在合理把数内结束(steps=" + steps + ")", f.finished && steps < 500);
@@ -266,7 +266,7 @@ public class HainanRulesSelfTest {
         while (!f.finished && hands < 40) {
             hands++;
             Seat winner = f.dealer.next(); // 闲胡 → 必下庄，庄位按 东→南→西→北 轮转
-            f.afterRound(hainanjong.game.RoundResult.win(winner, false, false, 0, f.dealer, null, null, null));
+            f.afterRound(hainanjong.engine.model.RoundResult.win(winner, false, false, 0, f.dealer, null, null, null));
             if (hands == 13) {
                 check("一圈不在第13把(首局庄第4庄下庄)提前结束", !f.finished);
             }
@@ -291,7 +291,7 @@ public class HainanRulesSelfTest {
         int[] ping = build(new int[]{0,1}, new int[]{1,1}, new int[]{2,1}, new int[]{3,1}, new int[]{4,1}, new int[]{5,1},
                 new int[]{9,1}, new int[]{10,1}, new int[]{11,1}, new int[]{12,1}, new int[]{13,1}, new int[]{14,1}, new int[]{17,2});
         java.util.List<Integer> ph = handList(ping);
-        hainanjong.game.RoundResult r = hainanjong.game.RoundResult.win(
+        hainanjong.engine.model.RoundResult r = hainanjong.engine.model.RoundResult.win(
                 Seat.NORTH, true, false, -1, null, null, ph, new ArrayList<Meld>());
 
         HainanScore.Settlement st = HainanScore.settleRound(r, Seat.EAST, 1, cfg, fl, mds, 40, false, null);
@@ -319,7 +319,7 @@ public class HainanRulesSelfTest {
         int[] ping = build(new int[]{0,1}, new int[]{1,1}, new int[]{2,1}, new int[]{3,1}, new int[]{4,1}, new int[]{5,1},
                 new int[]{9,1}, new int[]{10,1}, new int[]{11,1}, new int[]{12,1}, new int[]{13,1}, new int[]{14,1}, new int[]{17,2});
         java.util.List<Integer> ph = handList(ping);
-        hainanjong.game.RoundResult r1 = hainanjong.game.RoundResult.winFull(
+        hainanjong.engine.model.RoundResult r1 = hainanjong.engine.model.RoundResult.winFull(
                 Seat.EAST, true, false, true, 1, -1, null, null, ph, new ArrayList<Meld>());
         java.util.List<FanType> f1 = HainanScore.multFans(r1);
         check("天胡+天听 计入番型", f1.contains(FanType.TIAN_HU) && f1.contains(FanType.TIAN_TING));
@@ -327,7 +327,7 @@ public class HainanRulesSelfTest {
         int sum1 = HainanScore.multSum(r1, cfg);
         check("天胡5+天听4=9(不含平胡)", sum1 == 9);
 
-        hainanjong.game.RoundResult r2 = hainanjong.game.RoundResult.winFull(
+        hainanjong.engine.model.RoundResult r2 = hainanjong.engine.model.RoundResult.winFull(
                 Seat.WEST, false, false, false, 2, 17, Seat.NORTH, null, ph, new ArrayList<Meld>());
         check("地听(点炮)计入", HainanScore.multFans(r2).contains(FanType.DI_TING));
         check("地听 不与平胡叠加", !HainanScore.multFans(r2).contains(FanType.PING_HU));
