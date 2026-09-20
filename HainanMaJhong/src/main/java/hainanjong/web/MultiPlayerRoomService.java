@@ -201,6 +201,7 @@ public class MultiPlayerRoomService {
 
     public void onMessage(WebSocketSession session, String payload) {
         Long userId = userOfSession.get(session.getId());
+        WsRecorder.recordIn(session.getId(), payload);   // 【临时·阶段0】行为基线录制，阶段1结束删除
         try {
             @SuppressWarnings("unchecked")
             Map<String, Object> msg = mapper.readValue(payload, Map.class);
@@ -269,6 +270,7 @@ public class MultiPlayerRoomService {
     public void onGameMessage(WebSocketSession session, String payload) {
         Long userId = gameUserOfSession.get(session.getId());
         String code = gameCodeOfSession.get(session.getId());
+        WsRecorder.recordIn(session.getId(), payload);   // 【临时·阶段0】行为基线录制，阶段1结束删除
         if (userId == null || code == null) {
             return;
         }
@@ -1746,6 +1748,7 @@ public class MultiPlayerRoomService {
         }
         try {
             String json = mapper.writeValueAsString(msg);
+            WsRecorder.recordOut(session.getId(), json);   // 【临时·阶段0】行为基线录制，阶段1结束删除
             synchronized (session) {
                 if (session.isOpen()) {
                     session.sendMessage(new TextMessage(json));

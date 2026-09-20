@@ -31,3 +31,11 @@ Thumbs.db
 
 # å¤§å…â€œä¸‹è½½APPâ€æºåŒ…ï¼ˆé‡å¤æ–‡ä»¶ï¼›æ‰“åŒ…ç”¨ src/main/resources/static/apk/ é‚£ä»½ï¼‰
 /HainanMaJhong/jiangpahnmj.apk
+
+# ---- ¼Ü¹¹¸ÄÔì»Ø¹é»ùÏß / ±¾µØÔËĞĞÈÕÖ¾£¨º¬ÕæÊµÕËºÅÓë·¿¼äÂë£¬Ö»±¾µØÁôµµ£©----
+docs/baseline-*
+docs/stage0-*
+docs/stage1-*
+docs/local-*
+backup-arch/
+commit-stage1.txt
