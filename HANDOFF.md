@@ -34,6 +34,15 @@
 `node_modules/`（4000+ 文件）、`HainanMaJhong/docs/probe-*.png` 与 `ui-*.png`（探针截图，可重跑生成）、
 `back/*.jar`（旧版参考 jar 44MB，只在本地对照）、`.env`、`HainanMaJhong/game_log.txt`。
 
+**仓库里有两份 README、两份 APK，别搞混**：
+
+- `README.md`（**根目录**）—— 2026-09-24 由用户通过 GitHub 网页上传（同一提交还上传了根目录的
+  `jiangpahnmj.apk`）。里面也有一节「代码结构」，但措辞偏旧。
+- `HainanMaJhong/README.md`（**模块**）—— **权威版**：代码结构、牌张下标、番型、WebSocket 协议、
+  部署到云服务器（systemd / nginx 片段）。**改文档改这一份**。
+- APK：根目录那份是网页上传的留档；`HainanMaJhong/src/main/resources/static/apk/jiangpahnmj.apk`
+  才是 `/download/app` 真正下发的一份（`.env` 的 `APP_APK_PATH` 可指向服务器上的外部文件，换包不用重打 jar）。
+
 ---
 
 ## 2. 架构速览
