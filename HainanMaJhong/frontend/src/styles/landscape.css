@@ -1,0 +1,155 @@
+/*
+ * 虚拟横屏（适配手机）—— 移植自旧版 static/landscape.css，规则逐条保留。
+ *
+ * 三层结构（与旧版 game.html / records.html 一致）：
+ *   第一层 body        物理视口，只做黑色兜底，不放背景
+ *   第二层 #game-app   会被旋转的那一层，背景设在这里（旋转时背景跟着转）
+ *   第三层 .scale-layer 1280x720 设计分辨率固定框，由 JS 写 --scale 等比缩放
+ *
+ * 为什么背景必须放在 #game-app 上：
+ *   竖屏持握时 #game-app 被 rotate(90deg)，尺寸 = 物理高 x 物理宽，正好铺满屏幕；
+ *   如果背景留在 body 上（不旋转），牌桌转 90 度而背景不转，会露出竖着的底色。
+ *
+ * 为什么视图根元素不能再用 min-height: 100vh：
+ *   vh 是【物理视口】高度，不随 transform 变化。竖屏下物理高 = 旋转后容器的"宽"，
+ *   拿它当高度会把内容顶出可视区。视图根元素是 #game-app 的 flex 子项，
+ *   靠下面的 #game-app > * 撑满即可。
+ */
+
+:root {
+  /* 物理视口尺寸（dvh 不支持时用 vh 兜底） */
+  --app-width: 100vw;
+  --app-height: 100vh;
+
+  /* 逻辑设计分辨率：核心内容按这个尺寸布局，JS 算 scale 等比装入 */
+  --design-w: 1280px;
+  --design-h: 720px;
+  --scale: 1; /* 由 useLandscapeScale 写入 */
+
+  /* 刘海屏安全区（viewport-fit=cover 才有效） */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+}
+
+/* 支持动态视口单位时以此为准：iOS Safari 地址栏/工具条伸缩时 dvh 会跟着变 */
+@supports (width: 100dvw) {
+  :root {
+    --app-width: 100dvw;
+    --app-height: 100dvh;
+  }
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  /* body 是物理视口，只做黑色兜底 */
+  background: #000;
+  overscroll-behavior: none;
+}
+
+/* #app 只是挂载点，高度交给 #game-app（它是 position: fixed，不参与文档流） */
+#app {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+/* ============================================================
+   第二层：#game-app —— 会被旋转的那一层，包裹整个应用
+   ============================================================ */
+#game-app {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: var(--app-width);
+  height: var(--app-height);
+  overflow: hidden;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  /* 背景兜底：各页面在自己的根元素上覆盖为深绿渐变 */
+  background: #0a2318;
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+
+/*
+ * 视图根元素自动填满固定框。
+ * flex: 1 1 auto 让页面撑满容器；min-height: 0 允许它的内部滚动区正常收缩
+ * （flex 项默认 min-height: auto 会拒绝收缩到内容高度以下）。
+ */
+#game-app > * {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* ============================================================
+   竖屏持握 → 旋转 90° 模拟横屏
+   - 旋转后 宽 = 100dvh（物理高）、高 = 100dvw（物理宽），正好铺满屏幕
+   - top/left 50% + translate(-50%,-50%) 让旋转后仍然居中
+   - 物理转回横屏时 @media 不再匹配，transform 自动撤销，不需要 JS 参与
+   ============================================================ */
+@media (orientation: portrait) {
+  html.virtual-landscape #game-app {
+    top: 50%;
+    left: 50%;
+    width: 100vh; /* 不支持 dvh 的旧浏览器兜底 */
+    height: 100vw;
+    width: 100dvh; /* 支持动态视口单位时以此为准 */
+    height: 100dvw;
+    -webkit-transform: translate(-50%, -50%) rotate(90deg);
+    transform: translate(-50%, -50%) rotate(90deg);
+    -webkit-transform-origin: center;
+    transform-origin: center;
+  }
+
+  /*
+   * 手机虚拟横屏没有额外的 CSS 钩子：牌桌的纵向重排、手牌照放大一档，
+   * 都由 GameTable.vue 里 .table.is-phone 那一块负责（判定条件 = 虚拟横屏 + 竖屏）。
+   * 这里只保留固定框本身的尺寸规则。
+   */
+}
+
+/* 安全区工具类：放在缩放层之外的边缘按钮用得上 */
+.safe-area-pad {
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+
+/* ============================================================
+   第三层：.scale-layer —— 1280x720 固定框（牌桌专用）
+   尺寸固定为设计分辨率，transform 居中 + 等比缩放，核心区严禁溢出。
+   ============================================================ */
+.scale-layer {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--design-w);
+  height: var(--design-h);
+  overflow: hidden;
+  -webkit-transform: translate(-50%, -50%) scale(var(--scale, 1));
+  transform: translate(-50%, -50%) scale(var(--scale, 1));
+  -webkit-transform-origin: center;
+  transform-origin: center;
+  /*
+   * 性能：这一层是"缩放 + 旋转"的大图层，里面上百个 <img>。
+   * 不提升为合成层的话，每次出牌改 DOM，浏览器可能按设备分辨率把整层重新栅格化
+   * —— 手机上就是"出牌卡一下"。这两行让它常驻自己的合成层，
+   * 布局/绘制变化不再触发整层重栅格。
+   * contain: paint 顺带把绘制范围限制在本层（本来就有 overflow: hidden，行为一致）。
+   */
+  will-change: transform;
+  contain: paint;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}

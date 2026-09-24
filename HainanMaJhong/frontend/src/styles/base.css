@@ -1,0 +1,183 @@
+/*
+ * 全局基础样式与设计令牌。
+ *
+ * 设计方向：深色牌桌绿 + 金色描边 + 象牙白牌面。
+ * 令牌集中在 :root，换皮只改这里。
+ */
+:root {
+  /* 桌布与底色 */
+  --felt-900: #08211a;
+  --felt-800: #0d3b2a;
+  --felt-700: #12513a;
+  --felt-600: #17614a;
+
+  /* 金色系：用于强调、当前回合、房主标识 */
+  --gold-500: #d7b25a;
+  --gold-400: #f0cd74;
+  --gold-300: #ffe6a8;
+
+  /* 文字 */
+  --ink-100: #f4f7f5;
+  --ink-200: #cfdcd6;
+  --ink-300: #9db3aa;
+  --ink-400: #6f8a80;
+
+  /* 语义色 */
+  --ok: #35b06f;
+  --warn: #e0a72c;
+  --danger: #d9534f;
+
+  /* 面板 */
+  --panel-bg: rgba(4, 22, 16, 0.82);
+  --panel-border: rgba(215, 178, 90, 0.28);
+  --panel-radius: 12px;
+
+  /* 布局 */
+  --table-w: 1280px;
+  --table-h: 720px;
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+}
+
+body {
+  background: var(--felt-900);
+  color: var(--ink-100);
+  font-family: 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', system-ui, -apple-system,
+    'Segoe UI', sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  /* 移动端不要把点击误判成双击缩放 */
+  -webkit-text-size-adjust: 100%;
+  touch-action: manipulation;
+  overflow-x: hidden;
+}
+
+#app {
+  /* 高度交给 #game-app（landscape.css）：虚拟横屏下 100vh 是【物理视口高】，
+     不是可见框高度，留着它就是一个等着被踩的雷 */
+  min-height: 0;
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+a {
+  color: var(--gold-400);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+/* ---------- 通用面板 ---------- */
+.panel {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--panel-radius);
+  backdrop-filter: blur(6px);
+}
+
+/*
+ * 触屏设备（手机/平板）上关掉毛玻璃。
+ *
+ * backdrop-filter 要每帧把背后的内容重新模糊一遍，在中低端机 GPU 上非常贵；
+ * 牌桌里消息面板、战绩弹窗（占屏幕八成）一开就是一次全屏模糊重绘 ——
+ * 用户能明显感到"点开会顿一下"。面板底色本来就是 rgba(...,0.82) 的深色，
+ * 去掉模糊肉眼几乎看不出差别。
+ */
+@media (hover: none) {
+  .panel {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+/* ---------- 通用按钮 ---------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 18px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(23, 97, 74, 0.9), rgba(13, 59, 42, 0.9));
+  color: var(--ink-100);
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.12s ease, transform 0.12s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.btn:hover:not(:disabled) {
+  filter: brightness(1.15);
+}
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.btn--primary {
+  background: linear-gradient(180deg, var(--gold-400), var(--gold-500));
+  color: #2a1f06;
+  border-color: var(--gold-400);
+}
+.btn--danger {
+  background: linear-gradient(180deg, #b8453f, #8d2f2b);
+  border-color: #c95852;
+}
+.btn--ghost {
+  background: transparent;
+}
+
+/* ---------- 滚动条（桌面端） ---------- */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.25);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(215, 178, 90, 0.35);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(215, 178, 90, 0.55);
+}
+
+/* ---------- 无障碍 ---------- */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,17 @@
+# 依赖：不入库，用 pnpm install 还原
+node_modules/
+
+# Vite 的本地缓存
+.vite/
+*.local
+
+# 冒烟测试生成的一次性 shim（tools/smoke.mjs 每次会重建）
+__hn_*.mjs
+
+# 注意：public/favicon.ico 与 public/favicon.svg 是【要入库】的生成产物
+# （由 tools/build_favicon.py 生成）。它们不含任何环境相关内容，
+# 入库可避免每次 clone 都要装 Pillow 才能构建。
+
+# 构建产物不在这里 —— outDir 指向 ../src/main/resources/static，
+# 那些文件【要】入库（Spring Boot 直接托管，服务器上没有 Node 环境）。
+# 见 vite.config.js 的 outDir 与 README.md 的构建说明。

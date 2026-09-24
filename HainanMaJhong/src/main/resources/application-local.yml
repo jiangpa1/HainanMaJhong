@@ -1,0 +1,48 @@
+spring:
+  # 把模块根目录的 .env 当成一个配置源读进来。
+  #
+  # 为什么需要它：DB_PASSWORD / REDIS_PASSWORD / JWT_SECRET 都没有默认值，
+  # 而只有 run-local.ps1 会从 .env 注入这些环境变量。
+  # 从 IDE 直接跑主类、或点 Maven 面板的 spring-boot:run 时，
+  # 这几条路径都不经过那个脚本 —— 于是 JVM 里根本没有密码，
+  # 表现为 Hikari 拿空密码连 MySQL 挂满 30 秒后报
+  # "Connection is not available, request timed out after 30000ms"。
+  #
+  # optional: 前缀保证 .env 不存在时（比如打好的 jar 部署到服务器）不报错，
+  # 此时仍然按环境变量走。环境变量的优先级高于本文件，所以生产上用环境变量覆盖是安全的。
+  config:
+    import: optional:file:./.env[.properties]
+
+  # MySQL 配置（凭据与主机均走环境变量，不写死到仓库）
+  #   可选环境变量：
+  #     DB_URL      完整 JDBC URL（默认本机 hainan_majong 库）
+  #     DB_USERNAME 数据库账号（默认 root）
+  #     DB_PASSWORD 数据库密码（默认空）
+  datasource:
+    url: ${DB_URL:jdbc:mysql://192.168.133.128:3306/hainan_majong?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      # 启动时不校验连接，避免数据库未启动导致应用起不来（首次查询才真正连接）
+      initialization-fail-timeout: -1
+
+  # Redis 配置（Spring Boot 2.7 用 spring.redis 前缀，不是 spring.data.redis）
+  #   可选环境变量：REDIS_HOST / REDIS_PORT / REDIS_PASSWORD
+  redis:
+    host: ${REDIS_HOST:192.168.133.128}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD}
+
+jwt:
+  secret: ${JWT_SECRET}
+  access-expiration: 30m
+  refresh-expiration: 7d
+  issuer: hainanMahjong
+
+mybatis-plus:
+  configuration:
+    # 开发期把每条 SQL 和参数打到控制台，排查方便。
+    # ⚠️ 生产【绝对不能】开（application-prod.yml 里是 NoLoggingImpl）：
+    #    按用户名查密码这类语句的参数会原样进日志。
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl

@@ -1,0 +1,96 @@
+# ============================================================================
+#  云端（生产）配置 —— 启用方式：
+#      SPRING_PROFILES_ACTIVE=prod          （推荐，写进 systemd 的 Environment=）
+#      或 java -jar app.jar --spring.profiles.active=prod
+#
+#  这个文件里【不含任何密码】，全部从环境变量 / .env 读，可以安全提交到仓库。
+#
+#  三种给值方式，优先级从高到低：
+#    1. 命令行/环境变量（systemd 的 EnvironmentFile=<path> 最常用）
+#    2. 运行目录下的 .env 文件（下面 config.import 那一行读它）
+#    3. 本文件里 ${X:默认值} 的默认值
+#  ⚠️ 第 2 种要求【工作目录】就是 .env 所在目录（systemd 里写 WorkingDirectory=）。
+# ============================================================================
+
+spring:
+  # 把运行目录下的 .env 当配置源读入。optional: 保证文件不存在时不报错、直接走环境变量。
+  # 注意：操作系统环境变量的优先级高于这里的文件，所以两边都写时环境变量生效。
+  config:
+    import: optional:file:./.env[.properties]
+
+  # ---------- MySQL ----------
+  # DB_URL 整体覆盖，或分别给 DB_HOST / DB_PORT / DB_NAME（默认连本机库）。
+  #   useSSL=false&allowPublicKeyRetrieval=true：
+  #   MySQL 8 默认口令插件是 caching_sha2_password，不走 TLS 时如果不加这两个参数，
+  #   客户端会报 "Public Key Retrieval is not allowed" 直接连不上。
+  #   如果云数据库强制 TLS，就把 useSSL 改成 true 并配证书。
+  datasource:
+    url: ${DB_URL:jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3306}/${DB_NAME:hainan_majong}?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      # 启动时不校验连接：数据库暂时没起来也让应用先起来（首次真正查询才连），
+      # 否则 systemd 会因为"DB 比应用晚起"而反复重启，看不出真正原因。
+      initialization-fail-timeout: -1
+      maximum-pool-size: ${DB_POOL_SIZE:10}
+      minimum-idle: 2
+      connection-timeout: 10000
+      max-lifetime: 1200000
+
+  # ---------- Redis（房间快照 / 断线重连恢复）----------
+  # Spring Boot 2.7 用 spring.redis 前缀，不是 spring.data.redis
+  #
+  # ⚠️ 这里【不要】写 lettuce.pool.* —— 池化要 commons-pool2 依赖，pom 里没有，
+  #    写了会在启动时 NoClassDefFoundError。Lettuce 单连接本身线程安全，够用。
+  # 连不上 Redis 应用仍能启动，但掉线重连/快照恢复会降级（见 RoomSnapshotServiceImpl）。
+  redis:
+    host: ${REDIS_HOST:127.0.0.1}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD}
+    database: ${REDIS_DB:0}
+    timeout: 3000ms
+
+# ---------- JWT ----------
+# JWT_SECRET 必须 >= 32 字节（HS256/256bit），否则启动即 WeakKeyException。
+jwt:
+  secret: ${JWT_SECRET}
+  access-expiration: ${JWT_ACCESS_EXPIRATION:30m}
+  refresh-expiration: ${JWT_REFRESH_EXPIRATION:7d}
+  issuer: hainanMahjong
+
+# ---------- 服务端口 ----------
+server:
+  port: ${SERVER_PORT:8080}
+  # 前面挂 nginx 做 TLS 时打开：让 Spring 认 X-Forwarded-Proto/Host，
+  # 否则它以为自己在 http 上，拼出来的绝对地址和重定向都会退回 http。
+  forward-headers-strategy: framework
+  tomcat:
+    threads:
+      max: 200
+      min-spare: 10
+
+# ---------- SQL 日志 ----------
+# 生产必须关：StdOutImpl 会把 SQL 连同参数打印出来（含按用户名查密码那条）。
+# NoLoggingImpl 也是 MyBatis 的默认值，这里显式写出来是为了防止有人从 local 复制配置过来时漏掉。
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+
+# ---------- 日志 ----------
+# 云上通常在 journalctl / docker logs 里看，控制台格式带毫秒时间戳就够。
+# 不给 root 开 DEBUG：MyBatis/Spring 的 DEBUG 会把大量细节（含参数）刷进日志。
+logging:
+  level:
+    root: INFO
+    hainanMahjong: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"
+
+# ---------- 可选：外部 APK 覆盖 ----------
+# 大厅「下载APP」走 /download/app。填了这个路径就下服务器上这份文件，
+# 不填（或文件不存在）就下 jar 内打包的 static/apk/jiangpahnmj.apk。
+# 好处：换安装包只要替换文件 + 重启，不用重新打包发版。
+app:
+  apk:
+    path: ${APP_APK_PATH:}

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#0d3b2a" />
+    <meta name="description" content="海南麻将 · 在线四人联机对局" />
+    <title>海南麻将</title>
+
+    <!--
+      站点图标。
+      优先 svg（矢量，HiDPI 下最清晰）；ico 留给不看 type 的旧浏览器/爬虫。
+      两个文件都在 static/ 下：svg 由 Vite 从 public/ 拷过去，
+      ico 由 tools/build_favicon.py 生成（不随构建产生，属于一次性产物）。
+      显式声明后浏览器就不会再去裸请求 /favicon.ico 而产生 404。
+      theme-color 用牌桌绿，与页面体感一致。
+    -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="alternate icon" type="image/x-icon" href="/favicon.ico" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <meta name="theme-color" content="#0d3b2a" />
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

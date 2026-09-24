@@ -69,6 +69,19 @@ $env:REDIS_HOST  = $RedisHost
 $env:REDIS_PORT  = '6379'
 if ($cfg.ContainsKey('REDIS_PASSWORD')) { $env:REDIS_PASSWORD = $cfg['REDIS_PASSWORD'] }
 
+# JWT_SECRET must be >= 32 BYTES (256 bits) or the app refuses to start:
+#   io.jsonwebtoken.security.WeakKeyException
+# JwtUtils.init() (@PostConstruct) validates this at startup -- see the JWT block below.
+if (-not $cfg.ContainsKey('JWT_SECRET') -or [string]::IsNullOrWhiteSpace($cfg['JWT_SECRET'])) {
+    throw "JWT_SECRET missing in .env. HS256 needs >= 32 bytes. Generate one with:`n  [Convert]::ToBase64String((1..48 | ForEach-Object { Get-Random -Max 256 }))"
+}
+$jwtBytes = [System.Text.Encoding]::UTF8.GetByteCount($cfg['JWT_SECRET'])
+if ($jwtBytes -lt 32) {
+    throw "JWT_SECRET in .env is only $jwtBytes bytes; HS256 requires >= 32 bytes (256 bits).`n  Generate one with:`n  [Convert]::ToBase64String((1..48 | ForEach-Object { Get-Random -Max 256 }))"
+}
+$env:JWT_SECRET = $cfg['JWT_SECRET']
+Write-Host "      JWT_SECRET = OK ($jwtBytes bytes)" -ForegroundColor DarkGray
+
 if (-not (Test-Path $jar)) { throw "jar not found: $jar   -- run: mvn -B clean package" }
 
 $logDir = Join-Path $repo 'docs'

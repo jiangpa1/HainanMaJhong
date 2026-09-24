@@ -1,0 +1,30 @@
+{
+  "name": "hainan-mahjong-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "海南麻将前端（Vue3 + Vite）。构建产物输出到 ../src/main/resources/static，由 Spring Boot 托管。",
+  "scripts": {
+    "dev": "vite",
+    "clean": "node tools/clean-assets.mjs",
+    "build": "pnpm clean && vite build",
+    "preview": "vite preview",
+    "check": "node tools/check-tiles.mjs && node tools/check-audio.mjs && node tools/check-build.mjs",
+    "check:tiles": "node tools/check-tiles.mjs",
+    "check:audio": "node tools/check-audio.mjs",
+    "check:build": "node tools/check-build.mjs",
+    "smoke": "node tools/smoke.mjs",
+    "verify": "pnpm check && pnpm smoke && pnpm build"
+  },
+  "dependencies": {
+    "pinia": "^2.2.6",
+    "vue": "^3.5.13",
+    "vue-router": "^4.4.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "esbuild": "0.21.5",
+    "happy-dom": "^20.14.5",
+    "vite": "^5.4.11"
+  }
+}

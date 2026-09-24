@@ -1,21 +1,38 @@
-spring:
-  # MySQL 配置（凭据与主机均走环境变量，不写死到仓库）
-  #   可选环境变量：
-  #     DB_URL      完整 JDBC URL（默认本机 hainan_majong 库）
-  #     DB_USERNAME 数据库账号（默认 root）
-  #     DB_PASSWORD 数据库密码（默认空）
-  datasource:
-    url: ${DB_URL:jdbc:mysql://localhost:3306/hainan_majong?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8}
-    username: ${DB_USERNAME:root}
-    password: ${DB_PASSWORD:}
-    driver-class-name: com.mysql.cj.jdbc.Driver
-    hikari:
-      # 启动时不校验连接，避免数据库未启动导致应用起不来（首次查询才真正连接）
-      initialization-fail-timeout: -1
+# ============================================================================
+#  公共配置（所有环境共用）—— 环境相关的东西在 application-<profile>.yml 里
+#
+#  profile 怎么选：
+#    本地开发   默认就是 local，不用做任何事
+#    云端       SPRING_PROFILES_ACTIVE=prod
+#               或  java -jar app.jar --spring.profiles.active=prod
+#
+#  写成 ${SPRING_PROFILES_ACTIVE:local} 是为了让云端只用环境变量就能切，
+#  既不用改这个文件，也不用在命令行多敲参数。
+# ============================================================================
 
-  # Redis 配置（Spring Boot 2.7 用 spring.redis 前缀，不是 spring.data.redis）
-  #   可选环境变量：REDIS_HOST / REDIS_PORT / REDIS_PASSWORD
-  redis:
-    host: ${REDIS_HOST:localhost}
-    port: ${REDIS_PORT:6379}
-    password: ${REDIS_PASSWORD:}
+# 1. 服务端口配置（各 profile 里可以用 SERVER_PORT 覆盖）
+server:
+  port: 8080
+
+# 2. Spring 基础配置
+spring:
+  application:
+    name: HainanMahjong # 项目名称
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:local}
+
+# 3. MyBatis-Plus 核心配置
+# 注意：用的是 MyBatis-Plus，配置前缀必须是 mybatis-plus，写成 mybatis 不会生效
+mybatis-plus:
+  # Mapper XML 文件的存放路径（对应 src/main/resources/mapper/ 目录）
+  mapper-locations: classpath:mapper/*.xml
+
+  # 实体类所在的包路径（配置后，XML 里的 resultType 可以简写类名，不用写全路径）
+  type-aliases-package: hainanMahjong.pojo
+
+  # SQL 日志开关【故意不写在这里】，而是下放到各 profile：
+  #   application-local.yml —— StdOutImpl，开发时能看到每条 SQL 和参数
+  #   application-prod.yml  —— NoLoggingImpl，生产禁止把 SQL/参数（含按用户名查密码）打进日志
+  configuration:
+    # 开启驼峰命名映射（数据库的 user_name 自动映射为 Java 的 userName）
+    map-underscore-to-camel-case: true

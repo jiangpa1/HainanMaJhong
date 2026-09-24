@@ -1,3 +1,8 @@
+# ============================================================================
+#  .gitignore —— 仓库根（F:\HainanMaJhong2）
+#  注意：本文件原来混了 GBK/UTF-8 两种编码（中文注释全是乱码），这里统一成 UTF-8。
+# ============================================================================
+
 # ---- 构建产物 / 运行时 ----
 target/
 out/
@@ -8,7 +13,7 @@ out/
 *.docx
 ~$*
 
-# ---- 本地/环境配置 ----
+# ---- 本地/环境配置（含密码，绝不能提交）----
 .claude/settings.local.json
 .env
 *.local
@@ -29,19 +34,34 @@ out/
 .DS_Store
 Thumbs.db
 
-# 大厅“下载APP”源包（重复文件；打包用 src/main/resources/static/apk/ 那份）
+# ---- 前端依赖：node_modules 有 4000+ 文件，绝不能入库 ----
+node_modules/
+.pnpm-store/
+
+# ---- 探针生成的截图与 Python 缓存（随时可重跑生成，不入库）----
+HainanMaJhong/docs/probe-*.png
+HainanMaJhong/docs/ui-*.png
+__pycache__/
+*.pyc
+
+# ---- 本地调试残留 ----
+HainanMaJhong/game_log.txt
+
+# 大厅「下载APP」源包（重复文件；打包用 src/main/resources/static/apk/ 那份）
 /HainanMaJhong/jiangpahnmj.apk
 
-# ---- �ܹ�����ع���� / ����������־������ʵ�˺��뷿���룬ֻ����������----
+# ---- 架构改造回归基线 / 本地运行日志（含真实账号与房间码，只本地留档）----
 docs/baseline-*
 docs/stage0-*
 docs/stage1-*
 docs/local-*
 backup-arch/
 commit-stage1.txt
-
 docs/*.txt
 docs/ws-recording*.log
-
 docs/stage1-*.log
 docs/*-run.log
+docs/stage0-run.log
+
+# ---- 旧版参考 jar（44MB，仅本地对照用；要参考时从别处取）----
+back/*.jar
