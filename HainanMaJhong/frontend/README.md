@@ -471,7 +471,7 @@ python ..\docs\mobile-probe.py --orientation landscape                  # 物理
 把 `isMobile()` 改成恒 `false` 做变异测试，这个探针会报 17 项失败（固定框越界、
 触点全部落空），说明它真的挡得住回归。
 
-### 10. 登录页的「记住我」用独立存储键
+### 9. 登录页的「记住我」用独立存储键
 
 `Login.vue` 的记住信息存在 `hnLoginRemember` 里，**不要**并进 `api.js` 的登录态键，
 也不要把 `clearAuth()` 改成 `localStorage.clear()`：
@@ -484,7 +484,7 @@ python ..\docs\mobile-probe.py --orientation landscape                  # 物理
 验证：`docs/mobile-probe.py` 的最后一步会预置一份"记住我"存档进 `localStorage`，
 断言用户名/密码被预填、勾选状态被还原、取消勾选后密码从本机消失、备案号存在且可点。
 
-### 11. 注释里不要出现 `*/`
+### 10. 注释里不要出现 `*/`
 
 CSS 块注释不能嵌套。在 `/* ... */` 里写一个 `*/`（例如解释"这里不该有 `*/`"）
 会**提前结束注释**，后面整段 CSS 变成非法选择器被浏览器静默丢弃 ——
