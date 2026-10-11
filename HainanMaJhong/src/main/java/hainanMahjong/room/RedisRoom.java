@@ -18,8 +18,10 @@ import java.util.Map;
  * 要改请先确认线上 Redis 里的存量快照怎么处理。</p>
  */
 public class RedisRoom {
+    public String generation;
+    public long version;
     public long hostUserId;
-    public String state;            // WAITING / PLAYING / BETWEEN
+    public String state;            // WAITING / PLAYING / BETWEEN；CLOSED 不可恢复
     public int blockNo;
     public long sessionId;
     public int currentHand;
@@ -34,4 +36,5 @@ public class RedisRoom {
     public int flowHandNo;           // 下把编号
     public int firstDealerBegins;    // 首局庄已开始坐庄次数
     public int handsPlayed;
+    public boolean flowFinished;
 }

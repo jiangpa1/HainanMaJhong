@@ -17,7 +17,8 @@ import java.util.Map;
  * 现有的串行化保证正是建立在"一把锁管全部房间状态"之上。</p>
  *
  * <p>Java 的 {@code synchronized} 可重入，所以"持有 room 锁的方法调用另一个同样锁 room 的方法"
- * 是安全的；但<b>不要在持锁期间做 MySQL / Redis 等耗时 I/O</b>（现有代码把这类调用都放在锁外）。</p>
+ * 是安全的。快照写入在锁外；创建会话、结算提交及关闭保护目前在锁内决定顺序，
+ * 防止关闭与已提交结果交叉。不得在锁内等待引擎线程结束。</p>
  *
  * <p>字段多为 public 是历史原因（原为 impl 的嵌套类，靠同包可见性直接访问）。
  * 拆分时保持原样以最小化改动；后续若要收紧访问性，应改为方法而不是直接改字段可见性。</p>
@@ -26,8 +27,12 @@ public class Room {
 
     public final String code;
     public final long hostUserId;
+    /** 标识一次生命周期；房间码复用时必须生成新值。 */
+    public final String generation;
+    /** 在 room 锁内递增，拒绝乱序快照。 */
+    public long snapshotVersion;
 
-    /** 房间状态机：WAITING / PLAYING / BETWEEN。 */
+    /** 房间状态机：WAITING / PLAYING / BETWEEN / CLOSED（终态）。 */
     public volatile State state = State.WAITING;
 
     public final Map<Seat, Member> members = new EnumMap<Seat, Member>(Seat.class);
@@ -64,7 +69,12 @@ public class Room {
     public volatile DealerFlow flow;
 
     public Room(String code, long hostUserId) {
+        this(code, hostUserId, java.util.UUID.randomUUID().toString());
+    }
+
+    public Room(String code, long hostUserId, String generation) {
         this.code = code;
         this.hostUserId = hostUserId;
+        this.generation = generation;
     }
 }

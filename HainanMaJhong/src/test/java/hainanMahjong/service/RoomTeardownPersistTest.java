@@ -59,7 +59,7 @@ class RoomTeardownPersistTest {
         svc.stopAndClear(room);
 
         verify(roundPersist).disbandSession(777L);
-        assertEquals(State.BETWEEN, room.state, "销毁后房间状态应落到 BETWEEN");
+        assertEquals(State.CLOSED, room.state, "销毁后必须明确标记 CLOSED");
         assertTrue(room.stop, "销毁后应置 stop，让引擎循环退出");
     }
 
@@ -86,7 +86,7 @@ class RoomTeardownPersistTest {
 
         svc.stopAndClear(room);
 
-        assertEquals(State.BETWEEN, room.state, "写库失败也要把房间正常销毁掉");
+        assertEquals(State.CLOSED, room.state, "写库失败也要把房间正常销毁掉");
         assertTrue(room.stop);
     }
 }

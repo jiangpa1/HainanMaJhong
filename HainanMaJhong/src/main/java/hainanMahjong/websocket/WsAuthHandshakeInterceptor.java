@@ -65,6 +65,9 @@ public class WsAuthHandshakeInterceptor implements HandshakeInterceptor {
     private final JwtUtils jwtUtils;
     private final TokenService tokenService;
     private final ObjectMapper objectMapper;
+    private hainanMahjong.monitoring.CapacityMetrics metrics;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setCapacityMetrics(hainanMahjong.monitoring.CapacityMetrics metrics) { this.metrics = metrics; }
 
     public WsAuthHandshakeInterceptor(JwtUtils jwtUtils,
                                       TokenService tokenService,
@@ -80,6 +83,8 @@ public class WsAuthHandshakeInterceptor implements HandshakeInterceptor {
                                    WebSocketHandler wsHandler,
                                    Map<String, Object> attributes) throws Exception {
 
+        long started = System.nanoTime(); boolean accepted = false;
+        try {
         String token = resolveToken(request);
         Claims claims = parse(token);
 
@@ -102,7 +107,13 @@ public class WsAuthHandshakeInterceptor implements HandshakeInterceptor {
         Number role = claims.get("role", Number.class);
         attributes.put(ATTR_ROLE, role == null ? null : role.intValue());
 
+        accepted = true;
         return true;
+        } finally {
+            if (metrics != null) metrics.time("mahjong.ws.handshake", System.nanoTime() - started,
+                "endpoint", "/game".equals(request.getURI().getPath()) ? "game" : "room",
+                "outcome", accepted ? "success" : "rejected");
+        }
     }
 
     @Override

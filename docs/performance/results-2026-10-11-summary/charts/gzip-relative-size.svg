@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE svg
+  PUBLIC '-//W3C//DTD SVG 1.0//EN'
+  'http://www.w3.org/TR/2001/REC-SVG-20010904/DTD/svg10.dtd'>
+<svg width="487" height="190" preserveAspectRatio="xMinYMin meet" viewBox="0 0 487 190" xmlns="http://www.w3.org/2000/svg" version="1.0" fill-rule="evenodd" xmlns:xlink="http://www.w3.org/1999/xlink">
+	<title>...</title>
+	<desc>...</desc>
+	<clipPath id="clip">
+		<rect x="0" y="0" width="487" height="190"/>
+	</clipPath>
+	<g id="group" transform="scale(1,-1) translate(0,-190)" style="clip-path: url(#clip)">
+		<g transform="">
+			<g transform="">
+				<path d="M 104,32 L 104,157 Z" style="stroke: rgb(90%,92%,94%); stroke-linecap: butt; stroke-width: 0.25;"/>
+				<path d="M 174,32 L 174,157 Z" style="stroke: rgb(90%,92%,94%); stroke-linecap: butt; stroke-width: 0.25;"/>
+				<path d="M 244,32 L 244,157 Z" style="stroke: rgb(90%,92%,94%); stroke-linecap: butt; stroke-width: 0.25;"/>
+				<path d="M 314,32 L 314,157 Z" style="stroke: rgb(90%,92%,94%); stroke-linecap: butt; stroke-width: 0.25;"/>
+				<path d="M 384,32 L 384,157 Z" style="stroke: rgb(90%,92%,94%); stroke-linecap: butt; stroke-width: 0.25;"/>
+				<path d="M 454,32 L 454,157 Z" style="stroke: rgb(90%,92%,94%); stroke-linecap: butt; stroke-width: 0.25;"/>
+				<g transform="">
+					<rect x="104.0" y="36.166666666666664" width="350.0" height="16.666666666666664" style="stroke: none; stroke-linecap: butt; stroke-width: 1; fill: rgb(40%,45%,50%); fill-rule: evenodd;"/>
+					<rect x="104.0" y="77.83333333333333" width="350.0" height="16.66666666666667" style="stroke: none; stroke-linecap: butt; stroke-width: 1; fill: rgb(40%,45%,50%); fill-rule: evenodd;"/>
+					<rect x="104.0" y="119.5" width="350.0" height="16.666666666666657" style="stroke: none; stroke-linecap: butt; stroke-width: 1; fill: rgb(40%,45%,50%); fill-rule: evenodd;"/>
+					<rect x="104.0" y="52.83333333333333" width="35.60250391236306" height="16.66666666666667" style="stroke: none; stroke-linecap: butt; stroke-width: 1; fill: rgb(7%,50%,41%); fill-rule: evenodd;"/>
+					<rect x="104.0" y="94.49999999999999" width="90.33850493653034" height="16.66666666666667" style="stroke: none; stroke-linecap: butt; stroke-width: 1; fill: rgb(7%,50%,41%); fill-rule: evenodd;"/>
+					<rect x="104.0" y="136.16666666666666" width="14.007488666158068" height="16.666666666666657" style="stroke: none; stroke-linecap: butt; stroke-width: 1; fill: rgb(7%,50%,41%); fill-rule: evenodd;"/>
+					<g transform=""/>
+				</g>
+				<g transform="">
+					<g transform="">
+						<path d="M 104,32 L 104,157 Z" style="stroke: rgb(0%,0%,0%); stroke-linecap: butt; stroke-width: 1;"/>
+					</g>
+					<g transform="">
+						<path d="M 104,32 L 99,32 Z" style="stroke: rgb(0%,0%,0%); stroke-linecap: butt; stroke-width: 1;"/>
+						<path d="M 104,73.666667 L 99,73.666667 Z" style="stroke: rgb(0%,0%,0%); stroke-linecap: butt; stroke-width: 1;"/>
+						<path d="M 104,115.333333 L 99,115.333333 Z" style="stroke: rgb(0%,0%,0%); stroke-linecap: butt; stroke-width: 1;"/>
+						<path d="M 104,157 L 99,157 Z" style="stroke: rgb(0%,0%,0%); stroke-linecap: butt; stroke-width: 1;"/>
+					</g>
+					<g transform="">
+						<g transform=" matrix(1,0,0,1,99,52.833333)">
+							<text x="-36.00000000000001" y="-3.6000000000000005" style="font-family: CN; font-size: 9px;fill: rgb(0%,0%,0%); stroke:none;" transform="translate(0,-7) scale(1,-1)">10局摘要</text>
+						</g>
+						<g transform=" matrix(1,0,0,1,99,94.5)">
+							<text x="-36.00000000000001" y="-3.6000000000000005" style="font-family: CN; font-size: 9px;fill: rgb(0%,0%,0%); stroke:none;" transform="translate(0,-7) scale(1,-1)">单局详情</text>
+						</g>
+						<g transform=" matrix(1,0,0,1,99,136.166667)">
+							<text x="-45.00000000000001" y="-3.6000000000000005" style="font-family: CN; font-size: 9px;fill: rgb(0%,0%,0%); stroke:none;" transform="translate(0,-7) scale(1,-1)">旧版1000局</text>
+						</g>
+					</g>
+				</g>
+				<g transform="">
+					<g transform="">
+						<path d="M 104,32 L 454,32 Z" style="stroke: rgb(0%,0%,0%); stroke-linecap: butt; stroke-width: 1;"/>
+					</g>
+					<g transform="">
+						<path d="M 104,32 L 104,27 Z" style="stroke: rgb(0%,0%,0%); stroke-linecap: butt; stroke-width: 1;"/>
+						<path d="M 174,32 L 174,27 Z" style="stroke: rgb(0%,0%,0%); stroke-linecap: butt; stroke-width: 1;"/>
+						<path d="M 244,32 L 244,27 Z" style="stroke: rgb(0%,0%,0%); stroke-linecap: butt; stroke-width: 1;"/>
+						<path d="M 314,32 L 314,27 Z" style="stroke: rgb(0%,0%,0%); stroke-linecap: butt; stroke-width: 1;"/>
+						<path d="M 384,32 L 384,27 Z" style="stroke: rgb(0%,0%,0%); stroke-linecap: butt; stroke-width: 1;"/>
+						<path d="M 454,32 L 454,27 Z" style="stroke: rgb(0%,0%,0%); stroke-linecap: butt; stroke-width: 1;"/>
+					</g>
+					<g transform="">
+						<g transform=" matrix(1,0,0,1,104,27)">
+							<text x="-4.25" y="-8.5" style="font-family: CN; font-size: 8.5px;fill: rgb(0%,0%,0%); stroke:none;" transform="translate(0,-17) scale(1,-1)">0%</text>
+						</g>
+						<g transform=" matrix(1,0,0,1,174,27)">
+							<text x="-6.375000000000001" y="-8.5" style="font-family: CN; font-size: 8.5px;fill: rgb(0%,0%,0%); stroke:none;" transform="translate(0,-17) scale(1,-1)">20%</text>
+						</g>
+						<g transform=" matrix(1,0,0,1,244,27)">
+							<text x="-6.375000000000001" y="-8.5" style="font-family: CN; font-size: 8.5px;fill: rgb(0%,0%,0%); stroke:none;" transform="translate(0,-17) scale(1,-1)">40%</text>
+						</g>
+						<g transform=" matrix(1,0,0,1,314,27)">
+							<text x="-6.375000000000001" y="-8.5" style="font-family: CN; font-size: 8.5px;fill: rgb(0%,0%,0%); stroke:none;" transform="translate(0,-17) scale(1,-1)">60%</text>
+						</g>
+						<g transform=" matrix(1,0,0,1,384,27)">
+							<text x="-6.375000000000001" y="-8.5" style="font-family: CN; font-size: 8.5px;fill: rgb(0%,0%,0%); stroke:none;" transform="translate(0,-17) scale(1,-1)">80%</text>
+						</g>
+						<g transform=" matrix(1,0,0,1,454,27)">
+							<text x="-8.5" y="-8.5" style="font-family: CN; font-size: 8.5px;fill: rgb(0%,0%,0%); stroke:none;" transform="translate(0,-17) scale(1,-1)">100%</text>
+						</g>
+					</g>
+				</g>
+			</g>
+			<rect x="104" y="178" width="12" height="4" style="stroke: rgb(40%,45%,50%); stroke-linecap: butt; stroke-width: 1; fill: rgb(40%,45%,50%); fill-rule: evenodd;"/>
+			<text x="122" y="176" style="font-family: CN; font-size: 9px;fill: rgb(40%,45%,50%); stroke:none;" transform="translate(0,352) scale(1,-1)">identity 原始大小100%</text>
+			<rect x="295" y="178" width="12" height="4" style="stroke: rgb(7%,50%,41%); stroke-linecap: butt; stroke-width: 1; fill: rgb(7%,50%,41%); fill-rule: evenodd;"/>
+			<text x="313" y="176" style="font-family: CN; font-size: 9px;fill: rgb(40%,45%,50%); stroke:none;" transform="translate(0,352) scale(1,-1)">gzip级别1</text>
+			<text x="104" y="9" style="font-family: CN; font-size: 8.5px;fill: rgb(40%,45%,50%); stroke:none;" transform="translate(0,18) scale(1,-1)">横轴 每份样本相对自身原始大小的比例</text>
+		</g>
+	</g>
+</svg>

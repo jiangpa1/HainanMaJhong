@@ -65,3 +65,23 @@ docs/stage0-run.log
 
 # ---- 旧版参考 jar（44MB，仅本地对照用；要参考时从别处取）----
 back/*.jar
+
+# 本机报告工具依赖、临时渲染、线上采样和运行日志
+/tmp/
+/output/*
+!/output/pdf/
+/output/pdf/*
+!/output/pdf/海南麻将线上压测对比_2026-10-11.pdf
+!/output/pdf/海南麻将优化前后对比_2026-10-10至11.pdf
+/docs/performance/results-*/
+!/docs/performance/results-2026-10-11-summary/
+/docs/performance/results-2026-10-11-summary/*
+!/docs/performance/results-2026-10-11-summary/charts/
+!/docs/performance/results-2026-10-11-summary/*.csv
+!/docs/performance/results-2026-10-11-summary/comparison-data.json
+!/docs/performance/results-2026-10-11-retest/
+/docs/performance/results-2026-10-11-retest/*
+!/docs/performance/results-2026-10-11-retest/charts/
+!/docs/performance/results-2026-10-11-retest/online-comparison.csv
+!/docs/performance/results-2026-10-11-retest/online-comparison-data.json
+*.dpapi

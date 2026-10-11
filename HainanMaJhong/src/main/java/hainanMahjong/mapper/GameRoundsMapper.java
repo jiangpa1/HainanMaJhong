@@ -14,6 +14,8 @@ import java.util.List;
 
 @Mapper
 public interface GameRoundsMapper extends BaseMapper<GameRounds> {
+    @Select("SELECT COALESCE(MAX(round_num), 0) FROM game_rounds WHERE session_id = #{sessionId}")
+    int lastCommittedRound(@Param("sessionId") long sessionId);
 
     // ==================== 读取（战绩页） ====================
 

@@ -1,0 +1,974 @@
+{
+  "rows": [
+    {
+      "name": "10/09 192人",
+      "date": "2026-10-09",
+      "players": 192,
+      "version": "legacy",
+      "encoding": "identity",
+      "seconds": 300.0003858,
+      "http": 36000,
+      "failed": 0,
+      "errorRate": 0,
+      "httpP95": 39.045799999992596,
+      "wsP95": 28.21129999999539,
+      "tailP95": 36.63900000002468,
+      "tailErrorRate": 0,
+      "hands": 908,
+      "cpuMean": 48.250093605597996,
+      "cpuMax": 58.09352517985611,
+      "netMbps": 7.92863253785116,
+      "memMin": 332.50390625,
+      "monitorSamples": 57,
+      "pass_": true,
+      "stable": true,
+      "cleanup": 48,
+      "abort": null,
+      "source": "baseline-2026-10-09.json"
+    },
+    {
+      "name": "10/09 256人",
+      "date": "2026-10-09",
+      "players": 256,
+      "version": "legacy",
+      "encoding": "identity",
+      "seconds": 250.16921489999996,
+      "http": 40028,
+      "failed": 220,
+      "errorRate": 0.00549615269311482,
+      "httpP95": 1256.4051000000036,
+      "wsP95": 45.03340000001481,
+      "tailP95": 7999.677199999976,
+      "tailErrorRate": 0.054976303317535544,
+      "hands": 992,
+      "cpuMean": 61.51141693053039,
+      "cpuMax": 72.16599190283401,
+      "netMbps": 10.487162863045349,
+      "memMin": 335.91015625,
+      "monitorSamples": 49,
+      "pass_": false,
+      "stable": false,
+      "cleanup": 64,
+      "abort": "sustained-20second-http-window-unhealthy",
+      "source": "baseline-2026-10-09.json"
+    },
+    {
+      "name": "10/11 legacy identity 192人",
+      "date": "2026-10-11",
+      "players": 192,
+      "version": "legacy",
+      "encoding": "identity",
+      "seconds": 300.0000701,
+      "http": 36001,
+      "failed": 15,
+      "errorRate": 0.0004166550929140857,
+      "httpP95": 1179.3133999999845,
+      "wsP95": 1272.714800000016,
+      "tailP95": 942.2662000000128,
+      "tailErrorRate": 0.0004177109440267335,
+      "hands": 374,
+      "cpuMean": 55.73499606942527,
+      "cpuMax": 77.05242334322453,
+      "netMbps": 5.4714898255033555,
+      "memMin": 318.10546875,
+      "monitorSamples": 60,
+      "pass_": true,
+      "stable": true,
+      "cleanup": 48,
+      "cleanupOK": true,
+      "abort": null,
+      "source": "legacy-identity-192-retry\\results.json",
+      "bodyBytes": 97242205,
+      "decodedBytes": 97242205,
+      "endpoints": {
+        "list": {
+          "sent": 7200,
+          "failed": 6,
+          "statusCounts": {
+            "0": 6,
+            "200": 7194
+          },
+          "codeCounts": {
+            "200": 7194,
+            "none": 6
+          },
+          "bodyBytes": 24797731,
+          "decodedBytes": 24797731,
+          "encodings": {
+            "identity": 7194,
+            "unknown": 6
+          },
+          "timing": {
+            "n": 7200,
+            "p50Ms": 449.74910000001546,
+            "p95Ms": 1128.6377999999968,
+            "p99Ms": 1903.2008999999962,
+            "maxMs": 8002.150699999998
+          }
+        },
+        "byRoom": {
+          "sent": 7201,
+          "failed": 3,
+          "statusCounts": {
+            "0": 3,
+            "200": 7198
+          },
+          "codeCounts": {
+            "200": 7198,
+            "none": 3
+          },
+          "bodyBytes": 31226361,
+          "decodedBytes": 31226361,
+          "encodings": {
+            "identity": 7198,
+            "unknown": 3
+          },
+          "timing": {
+            "n": 7201,
+            "p50Ms": 445.6613999999827,
+            "p95Ms": 1146.8306999999913,
+            "p99Ms": 1919.9770000000135,
+            "maxMs": 8000.26939999999
+          }
+        },
+        "detail": {
+          "sent": 7201,
+          "failed": 1,
+          "statusCounts": {
+            "0": 1,
+            "200": 7200
+          },
+          "codeCounts": {
+            "200": 7200,
+            "none": 1
+          },
+          "bodyBytes": 31234781,
+          "decodedBytes": 31234781,
+          "encodings": {
+            "identity": 7200,
+            "unknown": 1
+          },
+          "timing": {
+            "n": 7201,
+            "p50Ms": 445.4016999999876,
+            "p95Ms": 1179.3133999999845,
+            "p99Ms": 1951.9855000000098,
+            "maxMs": 7999.967200000014
+          }
+        },
+        "list-page2": {
+          "sent": 7200,
+          "failed": 3,
+          "statusCounts": {
+            "0": 3,
+            "200": 7197
+          },
+          "codeCounts": {
+            "200": 7197,
+            "none": 3
+          },
+          "bodyBytes": 9080709,
+          "decodedBytes": 9080709,
+          "encodings": {
+            "identity": 7197,
+            "unknown": 3
+          },
+          "timing": {
+            "n": 7200,
+            "p50Ms": 438.527299999987,
+            "p95Ms": 1038.2767999999924,
+            "p99Ms": 1629.0042999999714,
+            "maxMs": 8000.229200000002
+          }
+        },
+        "pending": {
+          "sent": 7199,
+          "failed": 2,
+          "statusCounts": {
+            "0": 2,
+            "200": 7197
+          },
+          "codeCounts": {
+            "200": 7197,
+            "none": 2
+          },
+          "bodyBytes": 902623,
+          "decodedBytes": 902623,
+          "encodings": {
+            "identity": 7197,
+            "unknown": 2
+          },
+          "timing": {
+            "n": 7199,
+            "p50Ms": 423.85600000002887,
+            "p95Ms": 1004.0160000000033,
+            "p99Ms": 1591.5583999999799,
+            "maxMs": 8000.304999999993
+          }
+        }
+      },
+      "traffic": {
+        "seconds": 300.82988,
+        "httpBodyAndHeadersBytes": 106834479,
+        "gameReceivedFrameBytes": 28101860,
+        "gameSentFrameBytes": 945590,
+        "serverApplicationBitsPerSecond": 3588375.9685041923,
+        "perPlayerBitsPerSecond": 18689.45816929267
+      },
+      "startedAt": "2026-10-11T08:05:12.159Z",
+      "endedAt": "2026-10-11T08:10:12.989Z",
+      "rawStopReason": null,
+      "pendingReadFailures": [],
+      "performancePass": true
+    },
+    {
+      "name": "10/11 legacy gzip 192人 首测",
+      "date": "2026-10-11",
+      "players": 192,
+      "version": "legacy",
+      "encoding": "gzip",
+      "seconds": 8.658699799999972,
+      "http": 1040,
+      "failed": 83,
+      "errorRate": 0.0798076923076923,
+      "httpP95": 8000.317600000009,
+      "wsP95": 1734.6871999999858,
+      "tailP95": null,
+      "tailErrorRate": null,
+      "hands": 96,
+      "cpuMean": 30.50566178209056,
+      "cpuMax": 67.06467661691542,
+      "netMbps": 2.9960976,
+      "memMin": 262.07421875,
+      "monitorSamples": 3,
+      "pass_": false,
+      "stable": false,
+      "cleanup": 48,
+      "cleanupOK": true,
+      "abort": "http-error-rate-over-5-percent",
+      "source": "legacy-gzip-192\\results.json",
+      "bodyBytes": 451725,
+      "decodedBytes": 1487032,
+      "endpoints": {
+        "list": {
+          "sent": 208,
+          "failed": 17,
+          "statusCounts": {
+            "0": 17,
+            "200": 191
+          },
+          "codeCounts": {
+            "200": 191,
+            "none": 17
+          },
+          "bodyBytes": 156060,
+          "decodedBytes": 694293,
+          "encodings": {
+            "gzip": 191,
+            "unknown": 17
+          },
+          "timing": {
+            "n": 208,
+            "p50Ms": 4659.638000000006,
+            "p95Ms": 8000.317600000009,
+            "p99Ms": 8001.292400000006,
+            "maxMs": 8002.111100000009
+          }
+        },
+        "byRoom": {
+          "sent": 208,
+          "failed": 15,
+          "statusCounts": {
+            "0": 15,
+            "200": 193
+          },
+          "codeCounts": {
+            "200": 193,
+            "none": 15
+          },
+          "bodyBytes": 94187,
+          "decodedBytes": 250908,
+          "encodings": {
+            "gzip": 193,
+            "unknown": 15
+          },
+          "timing": {
+            "n": 208,
+            "p50Ms": 4550.112800000003,
+            "p95Ms": 7999.617999999988,
+            "p99Ms": 8000.655700000003,
+            "maxMs": 8001.397800000006
+          }
+        },
+        "detail": {
+          "sent": 208,
+          "failed": 15,
+          "statusCounts": {
+            "0": 15,
+            "200": 193
+          },
+          "codeCounts": {
+            "200": 193,
+            "none": 15
+          },
+          "bodyBytes": 93815,
+          "decodedBytes": 248059,
+          "encodings": {
+            "gzip": 193,
+            "unknown": 15
+          },
+          "timing": {
+            "n": 208,
+            "p50Ms": 4130.300799999997,
+            "p95Ms": 8000.07620000001,
+            "p99Ms": 8000.851399999985,
+            "maxMs": 8001.226400000014
+          }
+        },
+        "list-page2": {
+          "sent": 208,
+          "failed": 21,
+          "statusCounts": {
+            "0": 21,
+            "200": 187
+          },
+          "codeCounts": {
+            "200": 187,
+            "none": 21
+          },
+          "bodyBytes": 83454,
+          "decodedBytes": 269563,
+          "encodings": {
+            "gzip": 187,
+            "unknown": 21
+          },
+          "timing": {
+            "n": 208,
+            "p50Ms": 4128.227599999984,
+            "p95Ms": 8000.283800000005,
+            "p99Ms": 8001.148000000016,
+            "maxMs": 8001.6357000000135
+          }
+        },
+        "pending": {
+          "sent": 208,
+          "failed": 15,
+          "statusCounts": {
+            "0": 15,
+            "200": 193
+          },
+          "codeCounts": {
+            "200": 193,
+            "none": 15
+          },
+          "bodyBytes": 24209,
+          "decodedBytes": 24209,
+          "encodings": {
+            "identity": 193,
+            "unknown": 15
+          },
+          "timing": {
+            "n": 208,
+            "p50Ms": 4242.887000000017,
+            "p95Ms": 8000.01489999998,
+            "p99Ms": 8000.854900000006,
+            "maxMs": 8002.540399999998
+          }
+        }
+      },
+      "traffic": {
+        "seconds": 14.866847599999979,
+        "httpBodyAndHeadersBytes": 725106,
+        "gameReceivedFrameBytes": 1222563,
+        "gameSentFrameBytes": 39877,
+        "serverApplicationBitsPerSecond": 1048060.24916809,
+        "perPlayerBitsPerSecond": 5458.647131083802
+      },
+      "startedAt": "2026-10-11T08:16:58.559Z",
+      "endedAt": "2026-10-11T08:17:13.426Z",
+      "rawStopReason": "http-error-rate-over-5-percent",
+      "pendingReadFailures": [],
+      "performancePass": false
+    },
+    {
+      "name": "10/11 legacy gzip 192人 复测",
+      "date": "2026-10-11",
+      "players": 192,
+      "version": "legacy",
+      "encoding": "gzip",
+      "seconds": 300.00796290000005,
+      "http": 36001,
+      "failed": 10,
+      "errorRate": 0.00027777006194272384,
+      "httpP95": 892.0295000000042,
+      "wsP95": 1081.2462999999989,
+      "tailP95": 882.3122999999905,
+      "tailErrorRate": 0,
+      "hands": 390,
+      "cpuMean": 53.40083355156838,
+      "cpuMax": 64.58333333333333,
+      "netMbps": 3.5740011156462583,
+      "memMin": 265.1171875,
+      "monitorSamples": 59,
+      "pass_": true,
+      "stable": true,
+      "cleanup": 48,
+      "cleanupOK": true,
+      "abort": null,
+      "source": "legacy-gzip-192-retry\\results.json",
+      "bodyBytes": 25337911,
+      "decodedBytes": 106342351,
+      "endpoints": {
+        "list": {
+          "sent": 7200,
+          "failed": 1,
+          "statusCounts": {
+            "0": 1,
+            "200": 7199
+          },
+          "codeCounts": {
+            "200": 7199,
+            "none": 1
+          },
+          "bodyBytes": 6078193,
+          "decodedBytes": 27506059,
+          "encodings": {
+            "gzip": 7199,
+            "unknown": 1
+          },
+          "timing": {
+            "n": 7200,
+            "p50Ms": 433.729399999982,
+            "p95Ms": 892.0295000000042,
+            "p99Ms": 1296.9024000000209,
+            "maxMs": 6900.943899999955
+          }
+        },
+        "byRoom": {
+          "sent": 7201,
+          "failed": 0,
+          "statusCounts": {
+            "200": 7201
+          },
+          "codeCounts": {
+            "200": 7201
+          },
+          "bodyBytes": 7455668,
+          "decodedBytes": 33088865,
+          "encodings": {
+            "gzip": 7201
+          },
+          "timing": {
+            "n": 7201,
+            "p50Ms": 424.17660000000615,
+            "p95Ms": 882.4519999999902,
+            "p99Ms": 1343.5625,
+            "maxMs": 7511.992500000051
+          }
+        },
+        "detail": {
+          "sent": 7201,
+          "failed": 2,
+          "statusCounts": {
+            "0": 2,
+            "200": 7199
+          },
+          "codeCounts": {
+            "200": 7199,
+            "none": 2
+          },
+          "bodyBytes": 7453785,
+          "decodedBytes": 33087922,
+          "encodings": {
+            "gzip": 7199,
+            "unknown": 2
+          },
+          "timing": {
+            "n": 7201,
+            "p50Ms": 423.6738000000187,
+            "p95Ms": 872.9073999999964,
+            "p99Ms": 1296.6688999999897,
+            "maxMs": 8001.371400000004
+          }
+        },
+        "list-page2": {
+          "sent": 7200,
+          "failed": 3,
+          "statusCounts": {
+            "0": 3,
+            "200": 7197
+          },
+          "codeCounts": {
+            "200": 7197,
+            "none": 3
+          },
+          "bodyBytes": 3447896,
+          "decodedBytes": 11757136,
+          "encodings": {
+            "gzip": 7197,
+            "unknown": 3
+          },
+          "timing": {
+            "n": 7200,
+            "p50Ms": 432.03370000002906,
+            "p95Ms": 888.2313999999897,
+            "p99Ms": 1299.124599999981,
+            "maxMs": 6419.625700000033
+          }
+        },
+        "pending": {
+          "sent": 7199,
+          "failed": 4,
+          "statusCounts": {
+            "0": 4,
+            "200": 7195
+          },
+          "codeCounts": {
+            "200": 7195,
+            "none": 4
+          },
+          "bodyBytes": 902369,
+          "decodedBytes": 902369,
+          "encodings": {
+            "identity": 7195,
+            "unknown": 4
+          },
+          "timing": {
+            "n": 7199,
+            "p50Ms": 417.53410000001895,
+            "p95Ms": 884.7644000000437,
+            "p99Ms": 1313.0347000000183,
+            "maxMs": 8000.638399999996
+          }
+        }
+      },
+      "traffic": {
+        "seconds": 300.7734534,
+        "httpBodyAndHeadersBytes": 35622773,
+        "gameReceivedFrameBytes": 29051273,
+        "gameSentFrameBytes": 978361,
+        "serverApplicationBitsPerSecond": 1720206.2288120803,
+        "perPlayerBitsPerSecond": 8959.407441729585
+      },
+      "startedAt": "2026-10-11T08:29:08.848Z",
+      "endedAt": "2026-10-11T08:34:09.621Z",
+      "rawStopReason": null,
+      "pendingReadFailures": [],
+      "performancePass": true
+    },
+    {
+      "name": "10/11 v2 gzip 192人",
+      "date": "2026-10-11",
+      "players": 192,
+      "version": "v2",
+      "encoding": "gzip",
+      "seconds": 300.0078038,
+      "http": 36001,
+      "failed": 8,
+      "errorRate": 0.00022221604955417905,
+      "httpP95": 1052.8348000000115,
+      "wsP95": 1155.2594999999856,
+      "tailP95": 864.2569999999832,
+      "tailErrorRate": 0.0008361204013377926,
+      "hands": 363,
+      "cpuMean": 60.10052787613136,
+      "cpuMax": 69.11618669314797,
+      "netMbps": 3.2247684081632655,
+      "memMin": 237.68359375,
+      "monitorSamples": 59,
+      "pass_": false,
+      "stable": false,
+      "cleanup": 48,
+      "cleanupOK": false,
+      "abort": "收尾 pending 读取连接重置（2次）",
+      "source": "v2-gzip-192-retry\\results.json",
+      "bodyBytes": 17599071,
+      "decodedBytes": 65051916,
+      "endpoints": {
+        "list-v2": {
+          "sent": 7200,
+          "failed": 1,
+          "statusCounts": {
+            "0": 1,
+            "200": 7199
+          },
+          "codeCounts": {
+            "200": 7199,
+            "none": 1
+          },
+          "bodyBytes": 6396146,
+          "decodedBytes": 28772553,
+          "encodings": {
+            "gzip": 7199,
+            "unknown": 1
+          },
+          "timing": {
+            "n": 7200,
+            "p50Ms": 456.8115000000107,
+            "p95Ms": 975.2792999999947,
+            "p99Ms": 1692.612300000037,
+            "maxMs": 7999.979500000016
+          }
+        },
+        "overview-v2": {
+          "sent": 7201,
+          "failed": 0,
+          "statusCounts": {
+            "200": 7201
+          },
+          "codeCounts": {
+            "200": 7201
+          },
+          "bodyBytes": 2490147,
+          "decodedBytes": 5543368,
+          "encodings": {
+            "gzip": 7201
+          },
+          "timing": {
+            "n": 7201,
+            "p50Ms": 436.89909999998054,
+            "p95Ms": 921.4312999999966,
+            "p99Ms": 1701.0967999999993,
+            "maxMs": 7412.21179999999
+          }
+        },
+        "rounds-v2": {
+          "sent": 7201,
+          "failed": 4,
+          "statusCounts": {
+            "0": 4,
+            "200": 7197
+          },
+          "codeCounts": {
+            "200": 7197,
+            "none": 4
+          },
+          "bodyBytes": 4032658,
+          "decodedBytes": 16810055,
+          "encodings": {
+            "gzip": 7197,
+            "unknown": 4
+          },
+          "timing": {
+            "n": 7201,
+            "p50Ms": 439.389899999951,
+            "p95Ms": 924.0006000000285,
+            "p99Ms": 1485.2339999999967,
+            "maxMs": 8001.529100000043
+          }
+        },
+        "list-page2-v2": {
+          "sent": 7200,
+          "failed": 2,
+          "statusCounts": {
+            "0": 2,
+            "200": 7198
+          },
+          "codeCounts": {
+            "200": 7198,
+            "none": 2
+          },
+          "bodyBytes": 3777362,
+          "decodedBytes": 13023182,
+          "encodings": {
+            "gzip": 7198,
+            "unknown": 2
+          },
+          "timing": {
+            "n": 7200,
+            "p50Ms": 454.04899999999907,
+            "p95Ms": 959.6521000000066,
+            "p99Ms": 1601.4011000000173,
+            "maxMs": 7999.954599999997
+          }
+        },
+        "pending": {
+          "sent": 7199,
+          "failed": 1,
+          "statusCounts": {
+            "0": 1,
+            "200": 7198
+          },
+          "codeCounts": {
+            "200": 7198,
+            "none": 1
+          },
+          "bodyBytes": 902758,
+          "decodedBytes": 902758,
+          "encodings": {
+            "identity": 7198,
+            "unknown": 1
+          },
+          "timing": {
+            "n": 7199,
+            "p50Ms": 433.0659000000451,
+            "p95Ms": 1052.8348000000115,
+            "p99Ms": 1660.5312000000267,
+            "maxMs": 7739.627700000012
+          }
+        }
+      },
+      "traffic": {
+        "seconds": 301.1907422,
+        "httpBodyAndHeadersBytes": 27884384,
+        "gameReceivedFrameBytes": 27090271,
+        "gameSentFrameBytes": 916673,
+        "serverApplicationBitsPerSecond": 1460195.080325414,
+        "perPlayerBitsPerSecond": 7605.182710028198
+      },
+      "startedAt": "2026-10-11T08:43:10.156Z",
+      "endedAt": "2026-10-11T08:48:11.346Z",
+      "rawStopReason": "stage-acceptance-failed",
+      "pendingReadFailures": [
+        {
+          "roomId": "650143",
+          "userId": 98,
+          "error": "ECONNRESET"
+        },
+        {
+          "roomId": "222721",
+          "userId": 89,
+          "error": "ECONNRESET"
+        }
+      ],
+      "performancePass": true
+    }
+  ],
+  "preparationStops": [
+    {
+      "run": "legacy-identity-192",
+      "reason": "monitor-unavailable-three-samples",
+      "roomsClosed": 28
+    },
+    {
+      "run": "smoke-1-table",
+      "reason": "monitor-unavailable-three-samples",
+      "roomsClosed": 0
+    },
+    {
+      "run": "v2-gzip-192",
+      "reason": "homepage-baseline-failed",
+      "roomsClosed": 0
+    }
+  ],
+  "basicAndRecoveryChecks": [
+    {
+      "run": "legacy-gzip-64-recovery",
+      "players": 64,
+      "seconds": 60.00038889999999,
+      "http": 2400,
+      "failed": 0,
+      "pass_": true,
+      "abort": null,
+      "reconnect": null
+    },
+    {
+      "run": "smoke-1-table-retry",
+      "players": 4,
+      "seconds": 30.400904099999995,
+      "http": 76,
+      "failed": 0,
+      "pass_": true,
+      "abort": null,
+      "reconnect": {
+        "roomId": "118829",
+        "userId": 83,
+        "ms": 3003.9112999999925,
+        "pending": {
+          "status": 200,
+          "code": 200,
+          "ms": 837.0940999999875,
+          "bytes": 124,
+          "phases": {
+            "socketMs": 0.1909999999916181,
+            "connectedMs": 0.19139999999606516,
+            "headersMs": 836.5055999999895
+          }
+        },
+        "pendingRoom": {
+          "seat": "EAST",
+          "hostUserId": 83,
+          "code": "118829",
+          "exists": true,
+          "state": "PLAYING"
+        },
+        "restoredSeat": "EAST",
+        "snapshotReceived": true
+      }
+    },
+    {
+      "run": "smoke-v2-1-table",
+      "players": 4,
+      "seconds": 30.000019700000003,
+      "http": 76,
+      "failed": 0,
+      "pass_": true,
+      "abort": null,
+      "reconnect": {
+        "roomId": "447493",
+        "userId": 83,
+        "ms": 3580.453600000008,
+        "pending": {
+          "status": 200,
+          "code": 200,
+          "ms": 427.15140000000247,
+          "bytes": 124,
+          "phases": {
+            "socketMs": 0.18009999999776483,
+            "connectedMs": 0.18039999999746215,
+            "headersMs": 427.04619999999704
+          }
+        },
+        "pendingRoom": {
+          "seat": "WEST",
+          "hostUserId": 83,
+          "code": "447493",
+          "exists": true,
+          "state": "PLAYING"
+        },
+        "restoredSeat": "WEST",
+        "snapshotReceived": true
+      }
+    }
+  ],
+  "highestStableTestedPlayers": 192,
+  "sources": [
+    {
+      "path": "docs\\performance\\results-2026-10-11-retest\\baseline-2026-10-09.json",
+      "sha256": "44739ec3fb34c18a725b4072fe25686a64b11d09ee7dc8ae738c9a6ac6fa50e6"
+    },
+    {
+      "path": "docs\\performance\\results-2026-10-11-retest\\baseline-192-raw.json",
+      "sha256": "ee83ba845f49aa74ee050c9588e2528316c83c15116ca486a6f4e7cc08d6ef46"
+    },
+    {
+      "path": "docs\\performance\\results-2026-10-11-retest\\baseline-256-raw.json",
+      "sha256": "805391a9e160315a46157d9ef868ab1077b55b9bf929e54af0d77c9a75e99bb0"
+    },
+    {
+      "path": "docs\\performance\\results-2026-10-11-retest\\server-metrics-direct.jsonl",
+      "sha256": "2ec25e9f4425f779d5307618a0647161a8348e7740c5157026b88f9a92bf30bd"
+    },
+    {
+      "path": "docs\\performance\\results-2026-10-11-retest\\deployment-evidence.txt",
+      "sha256": "765f8c1c54ef3979279782218703358fe3b3703fd0f6b72f1bc780494f227fae"
+    },
+    {
+      "path": "docs\\performance\\results-2026-10-11-retest\\nginx-window-diagnostic.json",
+      "sha256": "dbc8582f33ff220d9ff1a3c1f5b663d0092b59d7aeb5f2d1b451ec5cf6db2f70"
+    },
+    {
+      "path": "docs\\performance\\results-2026-10-11-retest\\legacy-gzip-192\\results.json",
+      "sha256": "7b739b4bd4d809247a3968e4ba379be76efd9c853e7b838f77a45ad329f1f26c"
+    },
+    {
+      "path": "docs\\performance\\results-2026-10-11-retest\\legacy-gzip-192-retry\\results.json",
+      "sha256": "2d31cefcd94630e237115f33ca506002076735b64b56b0deae4a0c09e7f61309"
+    },
+    {
+      "path": "docs\\performance\\results-2026-10-11-retest\\legacy-gzip-64-recovery\\results.json",
+      "sha256": "8959d0c5368b9bc5d0129fcf2d5b7300f63a4efc778754fa83bff74dfc975dd0"
+    },
+    {
+      "path": "docs\\performance\\results-2026-10-11-retest\\legacy-identity-192\\results.json",
+      "sha256": "f3d17ffa04be74fc2be6d81b5e5e148bb6dbf99fd26aad8bafd33c8c08cdd7db"
+    },
+    {
+      "path": "docs\\performance\\results-2026-10-11-retest\\legacy-identity-192-retry\\results.json",
+      "sha256": "5879b9e4d340bd29fa353316f043b2d09d15cd171d18e14d4e93d3e785ea157f"
+    },
+    {
+      "path": "docs\\performance\\results-2026-10-11-retest\\smoke-1-table\\results.json",
+      "sha256": "56d280b5edc24343ed7c354578b7638b18327546ed74449cb8a7a98c6f0a52aa"
+    },
+    {
+      "path": "docs\\performance\\results-2026-10-11-retest\\smoke-1-table-retry\\results.json",
+      "sha256": "b7b22c0db844d6b1180bf044df81e753773d23046c589750d89dea9dc1b21958"
+    },
+    {
+      "path": "docs\\performance\\results-2026-10-11-retest\\smoke-v2-1-table\\results.json",
+      "sha256": "0bac883cd1529f0ab7f3abd6bfc1c0184b0809cb48a389288151567b77efba14"
+    },
+    {
+      "path": "docs\\performance\\results-2026-10-11-retest\\v2-gzip-192\\results.json",
+      "sha256": "4eea1a7893e3122f4030445c346ffe140d2cb9339efef544613a07fd0a98f56d"
+    },
+    {
+      "path": "docs\\performance\\results-2026-10-11-retest\\v2-gzip-192-retry\\results.json",
+      "sha256": "fa9d4da5fac89926804efd5afdc447f420e801d1ae628ddf79f30220381505cf"
+    },
+    {
+      "path": "docs\\performance\\online-capacity-retest.mjs",
+      "sha256": "ac785e2f742b00385fdafd9d04753fc06c52920c4139a40a746a1e3b7af5dbd8"
+    },
+    {
+      "path": "docs\\performance\\run-capacity-retest.ps1",
+      "sha256": "feaa495f02ef0bfd509d028025429931121b3ca042f719f9fcd3916c7285da6f"
+    },
+    {
+      "path": "docs\\performance\\online-retest-ssh-monitor.mjs",
+      "sha256": "1ddc0f2419355440750bbbc75925b8f806373b49a1226dc06b6d3ab423624af6"
+    },
+    {
+      "path": "docs\\performance\\online-retest-final-audit.mjs",
+      "sha256": "97ff63fb872478aa7a51fc6141d481d24da071912b67b607e21ce2c9da2342e8"
+    },
+    {
+      "path": "docs\\performance\\http-json-body.mjs",
+      "sha256": "7eedded2135e91efde197ed247cd7013ffb8a41b0f4e7852c59a229cb06deeff"
+    },
+    {
+      "path": "HainanMaJhong\\ops\\inspect-lifecycle.py",
+      "sha256": "a2aaccc90b1be0f6b01c1e8b0281ab6b8c2669c2f96f5ee20fd3e0143282fc2a"
+    },
+    {
+      "path": "docs\\performance\\results-2026-10-11-retest\\final-server-health.txt",
+      "sha256": "589315d6a6ac0315e636c65eae7cf4d21faa4206ea33356cb526a9acbfa9c6e5"
+    },
+    {
+      "path": "docs\\performance\\results-2026-10-11-retest\\lifecycle-audit.json",
+      "sha256": "634a12998cafc1c55beb42ec70535839b3c5c87cdd9ebaa33a565e6758723920"
+    },
+    {
+      "path": "docs\\performance\\results-2026-10-11-retest\\supplemental-pending-audit.json",
+      "sha256": "b0a937e3eb4e0a8e963c7beaac3e3d49103ebd22ac7abf5f383f09b86f2bc478"
+    }
+  ],
+  "limitations": [
+    "5-minute observations do not establish all-day or maximum capacity.",
+    "External path latency differs materially from Oct 9 and changes game pace and resource use.",
+    "V2 endpoints return less content than legacy; accounts have accumulated more history.",
+    "Old host samples were /proc at 5s; new direct SSH /proc samples are ~5s plus an optional Actuator fetch.",
+    "Current clients send metricsAck; old clients did not.",
+    "Host egress includes all server traffic; HTTP body bytes exclude headers and WebSocket frames.",
+    "Settled hands include setup and drain, not only the formal 300-second window."
+  ],
+  "supplementalPendingAudit": {
+    "at": "2026-10-11T08:52:27.423Z",
+    "kind": "independent-post-test-read",
+    "rawStagePass": false,
+    "notes": "Original failed cleanup reads and strict acceptance result remain unchanged; no load or room creation.",
+    "checks": [
+      {
+        "roomId": "650143",
+        "userId": 98,
+        "originalError": "ECONNRESET",
+        "status": 200,
+        "code": 200,
+        "pendingExists": false,
+        "verified": true
+      },
+      {
+        "roomId": "222721",
+        "userId": 89,
+        "originalError": "ECONNRESET",
+        "status": 200,
+        "code": 200,
+        "pendingExists": false,
+        "verified": true
+      }
+    ],
+    "allVerified": true
+  },
+  "storageAuditCount": 238
+}

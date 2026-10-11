@@ -53,6 +53,9 @@ public class MultiPlayerRoomServiceImpl implements MultiPlayerRoomService {
     private final RoomRegistry registry;
     private final RoomService rooms;
     private final GameEngineServiceImpl engine;
+    private hainanMahjong.monitoring.CapacityMetrics metrics;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setCapacityMetrics(hainanMahjong.monitoring.CapacityMetrics metrics) { this.metrics = metrics; }
 
     public MultiPlayerRoomServiceImpl(GamePushService push, RoomRegistry registry,
                                       RoomService rooms, GameEngineServiceImpl engine) {
@@ -68,6 +71,7 @@ public class MultiPlayerRoomServiceImpl implements MultiPlayerRoomService {
         long userId = authUserId(session);
         if (userId > 0) {
             registry.bindClientSession(session, userId);
+            if (metrics != null) metrics.connected(session, "room");
         }
     }
 
@@ -85,12 +89,16 @@ public class MultiPlayerRoomServiceImpl implements MultiPlayerRoomService {
                 if (rooms.join(session, userId == null ? 0L : userId, code)) {
                     engine.startMatch(registry.find(code));
                 }
-            } else if ("fillBots".equals(type)) {
-                engine.fillBotsFor(userId == null ? 0L : userId);
-            } else if ("startNow".equals(type)) {
-                engine.startNowFor(userId == null ? 0L : userId);
-            } else if ("leaveRoom".equals(type)) {
-                leave(userId == null ? 0L : userId);
+            } else if ("fillBots".equals(type) || "startNow".equals(type) || "leaveRoom".equals(type)) {
+                Room room = userId == null ? null : registry.find(registry.codeOfUser(userId));
+                if (room == null) return;
+                synchronized (room) {
+                    Member member = Member.byId(room, userId);
+                    if (room.state == State.CLOSED || member == null || member.roomWs != session) return;
+                    if ("fillBots".equals(type)) engine.fillBotsFor(userId);
+                    else if ("startNow".equals(type)) engine.startNowFor(userId);
+                    else leave(userId);
+                }
             } else {
                 push.sendJson(session, denied("未知指令: " + type));
             }
@@ -102,6 +110,8 @@ public class MultiPlayerRoomServiceImpl implements MultiPlayerRoomService {
     @Override
     public void onClose(WebSocketSession session) {
         Long userId = registry.clientUser(session);
+        registry.unbindClientSession(session);
+        if (metrics != null) metrics.disconnected(session, "room");
         if (userId == null) {
             return;
         }
@@ -125,6 +135,7 @@ public class MultiPlayerRoomServiceImpl implements MultiPlayerRoomService {
             return;
         }
         bindGameSeat(code, seat, userId, session);
+        if (metrics != null && registry.gameUser(session) != null) metrics.connected(session, "game");
     }
 
     @Override
@@ -135,7 +146,7 @@ public class MultiPlayerRoomServiceImpl implements MultiPlayerRoomService {
         // 这条日志能直接回答"服务端到底有没有收到这一帧"。
         // 【排查结束后可把这一段降级为 log.trace 或删掉】
         if (payload != null && payload.contains("\"discard\"")) {
-            log.info("收到 discard 帧: sessionId={}, payload={}", session.getId(), payload);
+            log.trace("收到 discard 帧");
         }
 
         Long userId = registry.gameUser(session);
@@ -154,8 +165,9 @@ public class MultiPlayerRoomServiceImpl implements MultiPlayerRoomService {
             return;
         }
         synchronized (room) {
+            if (room.state == State.CLOSED || !registry.isGameSessionCurrent(session, room)) return;
             Member m = Member.byId(room, userId);
-            if (m == null) {
+            if (m == null || m.gameWs != session) {
                 if (payload != null && payload.contains("\"discard\"")) {
                     log.warn("discard 帧被丢弃：房间里找不到 userId={} 的成员", userId);
                 }
@@ -165,9 +177,16 @@ public class MultiPlayerRoomServiceImpl implements MultiPlayerRoomService {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> msg = mapper.readValue(payload, Map.class);
                 String type = (String) msg.get("type");
+                if ("metricsAck".equals(type)) {
+                    if (metrics != null && msg.get("seq") instanceof Number sequence)
+                        metrics.acknowledge(sequence.longValue(), session, room);
+                    return;
+                }
+                if (metrics != null && java.util.Set.of("discard", "act", "pass", "baoting").contains(type == null ? "" : type))
+                    metrics.count("mahjong.game.actions.received", "action", type);
                 int reqId = msg.get("reqId") == null ? -1 : ((Number) msg.get("reqId")).intValue();
                 if ("discard".equals(type)) {
-                    log.info("处理 discard: userId={}, reqId={}, tile={}", userId, reqId, msg.get("tile"));
+                    log.trace("处理 discard: reqId={}", reqId);
                     m.human.discard(reqId, ((Number) msg.get("tile")).intValue());
                 } else if ("act".equals(type)) {
                     m.human.act(reqId, ((Number) msg.get("index")).intValue());
@@ -197,6 +216,7 @@ public class MultiPlayerRoomServiceImpl implements MultiPlayerRoomService {
 
     @Override
     public void onGameClose(WebSocketSession session) {
+        if (metrics != null) metrics.disconnected(session, "game");
         Long userId = registry.gameUser(session);
         String code = registry.gameCode(session);
         registry.unbindGameSession(session);
@@ -229,6 +249,7 @@ public class MultiPlayerRoomServiceImpl implements MultiPlayerRoomService {
             return;
         }
         synchronized (room) {
+            if (room.state == State.CLOSED) return;
             Member m = room.members.get(seat);
             if (m == null || m.userId != userId) {
                 push.sendJson(session, denied("座位不匹配，请重进房间"));

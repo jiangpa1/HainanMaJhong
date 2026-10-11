@@ -22,6 +22,8 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { isLoggedIn, records as fetchRecords, recordsByRoom, recordDetail } from '../api/api.js'
 import RecordDetail from '../components/records/RecordDetail.vue'
+import RecordDetailV2 from '../components/records/RecordDetailV2.vue'
+import { useRecordTask } from '../composables/useRecordTask.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -33,28 +35,29 @@ const total = ref(0)
 const pages = ref(0)
 const pageNum = ref(1)
 const pageSize = 10
-const loading = ref(false)
-const error = ref('')
+const readThroughSessionId = ref(null)
+const listTask = useRecordTask()
+const loading = listTask.busy
+const error = listTask.error
 
 const canPrev = computed(() => pageNum.value > 1)
 const canNext = computed(() => pages.value > 0 && pageNum.value < pages.value)
 
-async function load(p) {
-  loading.value = true
-  error.value = ''
-  try {
-    const body = await fetchRecords(p || pageNum.value, pageSize)
+function load(p) {
+  const target = p || pageNum.value
+  const cutoff = readThroughSessionId.value
+  return listTask.run({
+    key: `list:${target}:${cutoff}`,
+    read: () => fetchRecords(target, pageSize, cutoff),
+    onSuccess(body) {
     const data = body.data || {}
+    readThroughSessionId.value = data.readThroughSessionId ?? null
     list.value = data.records || []
     total.value = data.total || 0
     pages.value = data.pages || 0
-    pageNum.value = Number(data.pageNum || p || 1)
-  } catch (e) {
-    error.value = (e && e.message) || '加载失败'
-    list.value = []
-  } finally {
-    loading.value = false
-  }
+    pageNum.value = Number(data.pageNum || target || 1)
+    },
+  })
 }
 
 function go(p) {
@@ -66,41 +69,35 @@ function go(p) {
 /* ---------------- 二级：明细 ---------------- */
 
 const detail = ref(null)
-const detailLoading = ref(false)
+const detailTask = useRecordTask()
+const detailLoading = detailTask.busy
 /** 'room' = 来自 ?roomId=（本房间）；'session' = 从列表点进来的某一场 */
 const detailFrom = ref('session')
 
 /** 从 URL 读 roomId（本房间入口） */
 const queryRoomId = computed(() => (route.query.roomId || '').toString().trim())
 
-async function loadByRoom(roomId) {
-  detailFrom.value = 'room'
-  detailLoading.value = true
-  detail.value = null
-  try {
-    detail.value = await recordsByRoom(roomId)
-  } catch (e) {
-    detail.value = { notFound: true, error: (e && e.message) || '加载失败' }
-  } finally {
-    detailLoading.value = false
-  }
+function loadByRoom(roomId) {
+  return loadDetail(`room:${roomId}`, () => recordsByRoom(roomId), 'room')
 }
 
-async function openSession(sessionId) {
-  detailFrom.value = 'session'
-  detailLoading.value = true
+function openSession(sessionId) {
+  return loadDetail(`session:${sessionId}`, () => recordDetail(sessionId), 'session')
+}
+
+function loadDetail(key, read, from) {
+  listTask.cancel()
+  detailFrom.value = from
   detail.value = null
-  try {
-    detail.value = await recordDetail(sessionId)
-  } catch (e) {
-    detail.value = { notFound: true, error: (e && e.message) || '加载失败' }
-  } finally {
-    detailLoading.value = false
-  }
+  return detailTask.run({ key, read,
+    onSuccess: data => { detail.value = data },
+    onFailure: e => { detail.value = { notFound: true, error: e.message || '加载失败' } },
+  })
 }
 
 /** 返回一级：如果是 ?roomId= 进来的，就退回大厅（本房间没有"上一级列表"） */
 function back() {
+  detailTask.cancel()
   if (detailFrom.value === 'room') {
     router.push('/lobby')
   } else {
@@ -167,7 +164,9 @@ onMounted(() => {
 watch(queryRoomId, (v) => {
   if (v) loadByRoom(v)
   else {
+    detailTask.cancel()
     detail.value = null
+    readThroughSessionId.value = null
     load(1)
   }
 })
@@ -176,7 +175,7 @@ watch(queryRoomId, (v) => {
 <template>
   <div class="records">
     <header class="records__head">
-      <button class="btn btn--sm btn--ghost" type="button" @click="detail ? back() : router.push('/lobby')">
+      <button class="btn btn--sm btn--ghost" type="button" @click="detail || detailLoading ? back() : router.push('/lobby')">
         ← {{ detail ? '返回' : '回大厅' }}
       </button>
       <h1>{{ detail ? '对局明细' : '我的战绩' }}</h1>
@@ -185,8 +184,10 @@ watch(queryRoomId, (v) => {
     </header>
 
     <!-- ==================== 一级：场次列表 ==================== -->
-    <template v-if="!detail">
-      <p v-if="error" class="records__msg records__msg--bad">{{ error }}</p>
+    <template v-if="!detail && !detailLoading">
+      <p v-if="error" class="records__msg records__msg--bad">
+        {{ error }} <button type="button" class="btn btn--sm" :disabled="loading" @click="listTask.retry()">重试</button>
+      </p>
       <p v-if="loading" class="records__msg">加载中…</p>
 
       <div v-if="!loading && !list.length && !error" class="records__empty panel">
@@ -227,14 +228,19 @@ watch(queryRoomId, (v) => {
     <template v-else>
       <p v-if="detailLoading" class="records__msg">加载中…</p>
       <div v-else-if="detail.notFound" class="records__empty panel">
-        <template v-if="detailFrom === 'room'">本房间还没有完成的小局。</template>
+        <template v-if="detail.error">
+          {{ detail.error }}
+          <button type="button" class="btn btn--sm" @click="detailTask.retry()">重试</button>
+        </template>
+        <template v-else-if="detailFrom === 'room'">本房间还没有完成的小局。</template>
         <template v-else>这场对局还没有完成的小局。</template>
       </div>
 
       <template v-else>
       <!-- 概览 + 每一把：交给共用组件渲染（牌桌里点「局内战绩」用的是同一个组件，
            保证两处看到的明细完全一致） -->
-      <RecordDetail :detail="detail" />
+      <RecordDetailV2 v-if="detail._v2" :key="detail.sessionId" :detail="detail" @overview="detail.overview = $event" />
+      <RecordDetail v-else :detail="detail" />
       </template>
     </template>
   </div>

@@ -94,25 +94,28 @@ public class GameEngineServiceImpl implements GameEngineService {
 
     @Override
     public void startMatch(Room room) {
-        room.state = State.PLAYING;
-        room.stop = false;
-        Map<String, Object> start = new HashMap<>();
-        start.put("type", "start");
-        start.put("code", room.code);
-        int real = 0;
-        for (Seat s : Seat.values()) {
-            Member m = room.members.get(s);
-            if (m == null || RoomSupport.isBot(m) || m.roomWs == null) {
-                continue;
+        synchronized (room) {
+            if (room.state != State.WAITING || room.stop) return;
+            room.state = State.PLAYING;
+            room.stop = false;
+            Map<String, Object> start = new HashMap<>();
+            start.put("type", "start");
+            start.put("code", room.code);
+            int real = 0;
+            for (Seat s : Seat.values()) {
+                Member m = room.members.get(s);
+                if (m == null || RoomSupport.isBot(m) || m.roomWs == null) {
+                    continue;
+                }
+                real++;
+                start.put("seat", s.name());
+                push.sendJson(m.roomWs, start);
             }
-            real++;
-            start.put("seat", s.name());
-            push.sendJson(m.roomWs, start);
+            log.info("房间 {} 开局（{} 真人 + {} 电脑）", room.code, real, RoomSupport.memberCount(room) - real);
+            room.blockThread = new Thread(() -> runBlock(room), "room-bind-" + room.code);
+            room.blockThread.setDaemon(true);
+            room.blockThread.start();
         }
-        log.info("房间 {} 开局（{} 真人 + {} 电脑）", room.code, real, RoomSupport.memberCount(room) - real);
-        room.blockThread = new Thread(() -> runBlock(room), "room-bind-" + room.code);
-        room.blockThread.setDaemon(true);
-        room.blockThread.start();
     }
 
     /** 等待房房主“人机补齐”：空缺座位补入电脑，但仍停留在等待房，由房主再点“开始”开局。 */
@@ -225,9 +228,12 @@ public class GameEngineServiceImpl implements GameEngineService {
     /** 起 room-engine 线程直接跑一块（等待座位连入的逻辑在 {@link #runBlock} 内）。 */
     @Override
     public void startEngine(Room room, EngineStart seed) {
-        room.blockThread = new Thread(() -> runEngine(room, seed), "room-engine-" + room.code);
-        room.blockThread.setDaemon(true);
-        room.blockThread.start();
+        synchronized (room) {
+            if (room.state == State.CLOSED || room.stop) return;
+            room.blockThread = new Thread(() -> runEngine(room, seed), "room-engine-" + room.code);
+            room.blockThread.setDaemon(true);
+            room.blockThread.start();
+        }
     }
 
     // ==================== 引擎主循环 ====================
@@ -272,45 +278,63 @@ public class GameEngineServiceImpl implements GameEngineService {
 
     /** 跑完一轮（打满四风，或从 Redis 恢复的某把续跑）；再来一轮沿用同一 session/金币继续。 */
     private void runEngine(Room room, EngineStart seed) {
-        room.stop = false;
-        room.blockNo++;
-        room.resumeSeed = null;
-        for (Seat s : Seat.values()) {
-            room.coins.put(s, seed.coins.get(s) == null ? 0 : seed.coins.get(s));
-        }
-
-        long sessionId = seed.sessionId;
-        if (sessionId <= 0) {
-            List<Long> ids = new ArrayList<>();
+        long sessionId;
+        synchronized (room) {
+            if (room.stop || room.state != State.PLAYING) return;
+            room.blockNo++;
+            room.resumeSeed = null;
             for (Seat s : Seat.values()) {
-                Member m = room.members.get(s);
-                ids.add(m == null ? -1L : m.userId);
+                room.coins.put(s, seed.coins.get(s) == null ? 0 : seed.coins.get(s));
             }
-            try {
-                sessionId = roundPersist.createSession(room.code, room.hostUserId, ids);
-            } catch (Exception e) {
-                log.warn("创建 game_sessions 失败：{}", e.getMessage());
+
+            sessionId = seed.sessionId;
+            if (sessionId <= 0) {
+                List<Long> ids = new ArrayList<>();
+                for (Seat s : Seat.values()) {
+                    Member m = room.members.get(s);
+                    ids.add(m == null ? -1L : m.userId);
+                }
+                try {
+                    sessionId = roundPersist.createSession(room.code, room.hostUserId, ids);
+                } catch (Exception e) {
+                    log.warn("创建 game_sessions 失败：{}", e.getMessage());
+                    rooms.disband(room, "创建对局失败，请重新开桌");
+                    return;
+                }
             }
+            if (sessionId <= 0) {
+                rooms.disband(room, "创建对局失败，请重新开桌");
+                return;
+            }
+            room.sessionId = sessionId;
         }
-        room.sessionId = sessionId;
         final long sid = sessionId;
 
         HainanConfig cfg = seed.cfg != null ? seed.cfg : (room.cfg != null ? room.cfg : HainanConfig.defaultConfig());
-        room.cfg = cfg;
+        synchronized (room) {
+            if (room.stop || room.state != State.PLAYING) return;
+            room.cfg = cfg;
+        }
         DealerFlow flow = seed.flow;
         boolean resumeNext = seed.resume != null;
         if (flow == null) {
             flow = newFlow(room);
         }
-        room.flow = flow;
-        snapshots.save(room, null);
+        synchronized (room) {
+            if (room.stop || room.state != State.PLAYING) return;
+            room.flow = flow;
+        }
+        snapshots.save(room, seed.resume);
 
         try {
             while (!room.stop && room.state == State.PLAYING && !flow.finished) {
                 int hand = flow.handNo;
                 Seat dealer = flow.dealer;
-                room.currentHand = hand;
-                room.currentDealer = dealer;
+                synchronized (room) {
+                    if (room.stop || room.state != State.PLAYING) return;
+                    room.currentHand = hand;
+                    room.currentDealer = dealer;
+                }
                 Map<String, Object> hs = new HashMap<>();
                 hs.put("type", "hand_start");
                 hs.put("hand", hand);
@@ -337,11 +361,17 @@ public class GameEngineServiceImpl implements GameEngineService {
                 RoomListener listener = new RoomListener(room);
                 RoomManager rm = new RoomManager(config, controllers, listener);
                 listener.setRoom(rm);
-                room.active = rm;
+                synchronized (room) {
+                    if (room.stop || room.state != State.PLAYING) { rm.cancel(); return; }
+                    room.active = rm;
+                }
                 final int fHand = hand;
                 rm.setCheckpoint(snap -> {
-                    room.currentSnap = snap;
-                    room.currentHand = fHand;
+                    synchronized (room) {
+                        if (room.stop || room.state != State.PLAYING || room.active != rm) return;
+                        room.currentSnap = snap;
+                        room.currentHand = fHand;
+                    }
                     snapshots.save(room, snap);
                 });
                 if (resumeNext) {
@@ -367,20 +397,31 @@ public class GameEngineServiceImpl implements GameEngineService {
                 HainanScore.Settlement st = HainanScore.settleRound(r, flow.dealer, flow.bottom, cfg,
                         flMap, mMap, rm.deckSize(), rm.genChainHit(), dealerFirstGangSeat(dealer, rm));
                 Map<Seat, Integer> delta = st.delta;
-                for (Seat s : Seat.values()) {
-                    room.coins.put(s, room.coins.get(s) + delta.get(s));
-                }
-                Map<Seat, String> detailJsons = buildDetailJsons(st, flMap, mMap);
-                if (sid > 0) {
-                    try {
-                        persistRound(sid, hand, r, room, delta, detailJsons);
-                    } catch (Exception e) {
-                        log.warn("保存对局数据失败：{}", e.getMessage());
+                synchronized (room) {
+                    if (room.stop || room.state != State.PLAYING || room.sessionId != sid) return;
+                    for (Seat s : Seat.values()) {
+                        room.coins.put(s, room.coins.get(s) + delta.get(s));
                     }
+                    Map<Seat, String> detailJsons = buildDetailJsons(st, flMap, mMap);
+                    if (sid > 0) {
+                        try {
+                            persistRound(sid, hand, r, room, delta, detailJsons);
+                        } catch (Exception e) {
+                            log.warn("保存对局数据失败：{}", e.getMessage());
+                            throw new IllegalStateException("结算未提交，终止房间", e);
+                        }
+                    }
+                    flow.afterRound(r);
+                    room.flow = flow;
                 }
                 Map<String, Object> cu = new HashMap<>();
                 cu.put("type", "coins");
                 cu.put("hand", hand);
+                // persistRound 已返回（事务已提交），此标记才允许前端刷新数据库战绩。
+                if (sid > 0) {
+                    cu.put("sessionId", sid);
+                    cu.put("committedRoundNum", hand);
+                }
                 cu.put("coins", push.coinView(room));
                 /*
                  * 把本把的明细 notes 一起广播。
@@ -398,8 +439,6 @@ public class GameEngineServiceImpl implements GameEngineService {
                 cu.put("notes", noteView);
                 push.broadcastGame(room, cu);
 
-                flow.afterRound(r);
-                room.flow = flow;
                 snapshots.save(room, null);
                 // 胡牌大字+音效播放完再开下一把：非流局留足时间，流局稍短
                 sleepQuiet(room, r.isDraw ? DRAW_PAUSE_MS : HAND_END_MS);
@@ -416,19 +455,15 @@ public class GameEngineServiceImpl implements GameEngineService {
                 }
             }
             if (anyOffline) {
-                try {
-                    if (sid > 0) {
-                        roundPersist.disbandSession(sid);
-                    }
-                } catch (Exception e) {
-                    log.warn("标记解散失败：{}", e.getMessage());
-                }
                 broadcastFinish(room, true, "有玩家中途未归，本轮结束后房间解散");
                 rooms.stopAndClear(room);
                 return;
             }
             // 一轮打满四风结束：不结束 session/不清金币——房主可“再来一轮”，战绩与金币延续
-            room.state = State.BETWEEN;
+            synchronized (room) {
+                if (room.stop || room.state != State.PLAYING) return;
+                room.state = State.BETWEEN;
+            }
             snapshots.save(room, null);
             broadcastFinish(room, false, null);
         } catch (Throwable ex) {
@@ -438,6 +473,7 @@ public class GameEngineServiceImpl implements GameEngineService {
     }
 
     private void broadcastFinish(Room room, boolean disbandFlag, String reason) {
+        if (room.state == State.CLOSED || room.stop) return;
         Map<String, Object> m = new HashMap<>();
         m.put("type", "match_finish");
         m.put("coins", push.coinView(room));
@@ -843,6 +879,7 @@ public class GameEngineServiceImpl implements GameEngineService {
         }
 
         @Override public void onResume() {
+            if (room.stop || room.state == State.CLOSED || room.active != rm) return;
             // 从快照恢复一把：把当前全场状态推给所有在座端（服务重启/断线续跑用）
             if (rm == null) {
                 return;
@@ -908,6 +945,7 @@ public class GameEngineServiceImpl implements GameEngineService {
         }
 
         private void sendHand(Seat seat) {
+            if (room.stop || room.state == State.CLOSED || room.active != rm) return;
             if (rm == null) {
                 return;
             }

@@ -69,7 +69,7 @@ public class RoomManager {
     private final GenChainTracker genTracker = new GenChainTracker();
 
     /** 带超时的询问机制；每把开始时重建（内含 mahjong-timer 定时器）。 */
-    private PromptSupport prompts;
+    private volatile PromptSupport prompts;
 
     /** 本局适用的规则集（标准 / 海南），构造时依据 config 定下，之后不再变。 */
     private final RuleSet rules;
@@ -178,9 +178,15 @@ public class RoomManager {
     }
 
     /** 取消当前对局（玩家主动退出）：立即解除阻塞并终止本把。 */
+    public int pendingTimerCount() {
+        PromptSupport current = prompts;
+        return current == null ? 0 : current.pendingTimerCount();
+    }
+
     public void cancel() {
         cancelled = true;
-        prompts.forceNow();
+        PromptSupport current = prompts;
+        if (current != null) current.shutdown();
     }
 
     /** 当前牌墙剩余张数（结算“牌墙剩≤19 点炮独担三家”等用）。 */
@@ -257,6 +263,7 @@ public class RoomManager {
 
     /** 从快照恢复并继续这一把（不发牌，直接续接当前出牌者的回合）。 */
     public void resume(GameSnapshot snap) {
+        if (cancelled) return;
         resetHandState();
         deck.clear();
         deck.addAll(snap.deck);
@@ -291,7 +298,6 @@ public class RoomManager {
         }
 
         roundOver = false;
-        cancelled = false;
         // 恢复各家弃牌
         for (Seat seat : Seat.values()) {
             List<Integer> ds = playerDiscards.get(seat);
@@ -301,11 +307,12 @@ public class RoomManager {
                 ds.addAll(sd);
             }
         }
-        prompts = new PromptSupport(Executors.newSingleThreadScheduledExecutor(r -> {
+        prompts = new PromptSupport(Executors.newScheduledThreadPool(1, r -> {
             Thread t = new Thread(r, "mahjong-timer");
             t.setDaemon(true);
             return t;
         }), listener);
+        if (cancelled) { prompts.shutdown(); return; }
         listener.onResume();
         try {
             if ("RESPOND".equals(snap.phase)) {
@@ -327,16 +334,18 @@ public class RoomManager {
     // ==================== 启动 ====================
 
     public void start() {
+        if (cancelled) return;
         resetHandState();
         buildDeck();
         shuffle();
         deal();
-        prompts = new PromptSupport(Executors.newSingleThreadScheduledExecutor(r -> {
+        prompts = new PromptSupport(Executors.newScheduledThreadPool(1, r -> {
             Thread t = new Thread(r, "mahjong-timer");
             t.setDaemon(true);
             return t;
         }), listener);
         try {
+            if (cancelled) return;
             doTurn(config.dealer, true, true);
         } finally {
             prompts.shutdown();

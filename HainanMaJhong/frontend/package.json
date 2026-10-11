@@ -13,6 +13,8 @@
     "check:tiles": "node tools/check-tiles.mjs",
     "check:audio": "node tools/check-audio.mjs",
     "check:build": "node tools/check-build.mjs",
+    "check:records-v2": "node tools/check-records-v2.mjs",
+    "check:record-refresh": "node tools/check-record-refresh.mjs",
     "smoke": "node tools/smoke.mjs",
     "verify": "pnpm check && pnpm smoke && pnpm build"
   },

@@ -1,0 +1,427 @@
+{
+  "period": [
+    "2026-10-10",
+    "2026-10-11"
+  ],
+  "timezone": "Asia/Shanghai",
+  "sql": [
+    {
+      "rounds": 10,
+      "listBytes": 269,
+      "overviewBytes": 707,
+      "firstPageBytes": 5589,
+      "legacyBytes": 9004,
+      "firstScreenBytes": 6296,
+      "savedPercent": 30.0755
+    },
+    {
+      "rounds": 100,
+      "listBytes": 270,
+      "overviewBytes": 717,
+      "firstPageBytes": 5590,
+      "legacyBytes": 86320,
+      "firstScreenBytes": 6307,
+      "savedPercent": 92.6935
+    },
+    {
+      "rounds": 1000,
+      "listBytes": 271,
+      "overviewBytes": 727,
+      "firstPageBytes": 5592,
+      "legacyBytes": 860326,
+      "firstScreenBytes": 6319,
+      "savedPercent": 99.2655
+    }
+  ],
+  "gzip": [
+    {
+      "level": 0,
+      "cases": [
+        {
+          "route": "/api/v2/records",
+          "originalBytes": 136,
+          "bodyBytes": 136,
+          "savedPercent": 0.0,
+          "encoding": "identity",
+          "decodedSha256": "c41ab6649863fc2b241b848869732c9edfb40d7e961fc1867877863d10b6949c"
+        },
+        {
+          "route": "/api/v2/records/42/overview",
+          "originalBytes": 813,
+          "bodyBytes": 813,
+          "savedPercent": 0.0,
+          "encoding": "identity",
+          "decodedSha256": "80002c4b9e61efb45928d48477f5f09d33d9f4b4cc0da3ab6e7ea8b5ac6d2c2e"
+        },
+        {
+          "route": "/api/v2/records/42/rounds",
+          "originalBytes": 5751,
+          "bodyBytes": 5751,
+          "savedPercent": 0.0,
+          "encoding": "identity",
+          "decodedSha256": "270fd9742ceadbad2e93f22924d4d580b3ace6006d61316546652d1e72150880"
+        },
+        {
+          "route": "/api/v2/records/42/rounds/1",
+          "originalBytes": 1418,
+          "bodyBytes": 1418,
+          "savedPercent": 0.0,
+          "encoding": "identity",
+          "decodedSha256": "7a259238c5e809fd7ee957df855dd63bc73646e718a1fab956bf1bd8649ac79f"
+        },
+        {
+          "route": "/api/records/42",
+          "originalBytes": 570195,
+          "bodyBytes": 570195,
+          "savedPercent": 0.0,
+          "encoding": "identity",
+          "decodedSha256": "01e50b49414fa81cc9cbd0025e11eabf8f1c9a2eb6e90698c59f0129a04611da"
+        },
+        {
+          "route": "/api/v2/records/small",
+          "originalBytes": 41,
+          "bodyBytes": 41,
+          "savedPercent": 0.0,
+          "encoding": "identity",
+          "decodedSha256": "136bd5cee2a16034dbad0d136c584bb6173bbd90442eb6b2c859f462120bccd3"
+        },
+        {
+          "route": "/api/v2/records/small-chunked",
+          "originalBytes": 41,
+          "bodyBytes": 41,
+          "savedPercent": 0.0,
+          "encoding": "identity",
+          "decodedSha256": "136bd5cee2a16034dbad0d136c584bb6173bbd90442eb6b2c859f462120bccd3"
+        },
+        {
+          "route": "/api/login",
+          "originalBytes": 3053,
+          "bodyBytes": 3053,
+          "savedPercent": 0.0,
+          "encoding": "identity",
+          "decodedSha256": "c5ffa43ff352a05ec253474761ec5f1badd5c615796f4252ea620a427b990cad"
+        }
+      ],
+      "elapsedSeconds": 0.205,
+      "p50Ms": 3.638,
+      "p95Ms": 5.478,
+      "p99Ms": 6.472,
+      "nginxWorkerCpuSeconds": 0.04,
+      "nginxWorkerCpuCorePercent": 19.54,
+      "sampleBodyBytes": 1150200,
+      "interfaceTxBytes": {
+        "lo": 2674104,
+        "eth0": 54
+      },
+      "accessLogBodyBytes": 2364563,
+      "accessLogHttpBytes": 2409344
+    },
+    {
+      "level": 1,
+      "cases": [
+        {
+          "route": "/api/v2/records",
+          "originalBytes": 136,
+          "bodyBytes": 136,
+          "savedPercent": 0.0,
+          "encoding": "identity",
+          "decodedSha256": "c41ab6649863fc2b241b848869732c9edfb40d7e961fc1867877863d10b6949c"
+        },
+        {
+          "route": "/api/v2/records/42/overview",
+          "originalBytes": 813,
+          "bodyBytes": 813,
+          "savedPercent": 0.0,
+          "encoding": "identity",
+          "decodedSha256": "80002c4b9e61efb45928d48477f5f09d33d9f4b4cc0da3ab6e7ea8b5ac6d2c2e"
+        },
+        {
+          "route": "/api/v2/records/42/rounds",
+          "originalBytes": 5751,
+          "bodyBytes": 585,
+          "savedPercent": 89.83,
+          "encoding": "gzip",
+          "decodedSha256": "270fd9742ceadbad2e93f22924d4d580b3ace6006d61316546652d1e72150880"
+        },
+        {
+          "route": "/api/v2/records/42/rounds/1",
+          "originalBytes": 1418,
+          "bodyBytes": 366,
+          "savedPercent": 74.19,
+          "encoding": "gzip",
+          "decodedSha256": "7a259238c5e809fd7ee957df855dd63bc73646e718a1fab956bf1bd8649ac79f"
+        },
+        {
+          "route": "/api/records/42",
+          "originalBytes": 570195,
+          "bodyBytes": 22820,
+          "savedPercent": 96.0,
+          "encoding": "gzip",
+          "decodedSha256": "01e50b49414fa81cc9cbd0025e11eabf8f1c9a2eb6e90698c59f0129a04611da"
+        },
+        {
+          "route": "/api/v2/records/small",
+          "originalBytes": 41,
+          "bodyBytes": 41,
+          "savedPercent": 0.0,
+          "encoding": "identity",
+          "decodedSha256": "136bd5cee2a16034dbad0d136c584bb6173bbd90442eb6b2c859f462120bccd3"
+        },
+        {
+          "route": "/api/v2/records/small-chunked",
+          "originalBytes": 41,
+          "bodyBytes": 60,
+          "savedPercent": -46.34,
+          "encoding": "gzip",
+          "decodedSha256": "136bd5cee2a16034dbad0d136c584bb6173bbd90442eb6b2c859f462120bccd3"
+        },
+        {
+          "route": "/api/login",
+          "originalBytes": 3053,
+          "bodyBytes": 3053,
+          "savedPercent": 0.0,
+          "encoding": "identity",
+          "decodedSha256": "c5ffa43ff352a05ec253474761ec5f1badd5c615796f4252ea620a427b990cad"
+        }
+      ],
+      "elapsedSeconds": 0.187,
+      "p50Ms": 3.463,
+      "p95Ms": 4.756,
+      "p99Ms": 5.716,
+      "nginxWorkerCpuSeconds": 0.04,
+      "nginxWorkerCpuCorePercent": 21.37,
+      "sampleBodyBytes": 117000,
+      "interfaceTxBytes": {
+        "lo": 1653000,
+        "eth0": 5270
+      },
+      "accessLogBodyBytes": 1306102,
+      "accessLogHttpBytes": 1363205
+    },
+    {
+      "level": 2,
+      "cases": [
+        {
+          "route": "/api/v2/records",
+          "originalBytes": 136,
+          "bodyBytes": 136,
+          "savedPercent": 0.0,
+          "encoding": "identity",
+          "decodedSha256": "c41ab6649863fc2b241b848869732c9edfb40d7e961fc1867877863d10b6949c"
+        },
+        {
+          "route": "/api/v2/records/42/overview",
+          "originalBytes": 813,
+          "bodyBytes": 813,
+          "savedPercent": 0.0,
+          "encoding": "identity",
+          "decodedSha256": "80002c4b9e61efb45928d48477f5f09d33d9f4b4cc0da3ab6e7ea8b5ac6d2c2e"
+        },
+        {
+          "route": "/api/v2/records/42/rounds",
+          "originalBytes": 5751,
+          "bodyBytes": 580,
+          "savedPercent": 89.91,
+          "encoding": "gzip",
+          "decodedSha256": "270fd9742ceadbad2e93f22924d4d580b3ace6006d61316546652d1e72150880"
+        },
+        {
+          "route": "/api/v2/records/42/rounds/1",
+          "originalBytes": 1418,
+          "bodyBytes": 360,
+          "savedPercent": 74.61,
+          "encoding": "gzip",
+          "decodedSha256": "7a259238c5e809fd7ee957df855dd63bc73646e718a1fab956bf1bd8649ac79f"
+        },
+        {
+          "route": "/api/records/42",
+          "originalBytes": 570195,
+          "bodyBytes": 21188,
+          "savedPercent": 96.28,
+          "encoding": "gzip",
+          "decodedSha256": "01e50b49414fa81cc9cbd0025e11eabf8f1c9a2eb6e90698c59f0129a04611da"
+        },
+        {
+          "route": "/api/v2/records/small",
+          "originalBytes": 41,
+          "bodyBytes": 41,
+          "savedPercent": 0.0,
+          "encoding": "identity",
+          "decodedSha256": "136bd5cee2a16034dbad0d136c584bb6173bbd90442eb6b2c859f462120bccd3"
+        },
+        {
+          "route": "/api/v2/records/small-chunked",
+          "originalBytes": 41,
+          "bodyBytes": 60,
+          "savedPercent": -46.34,
+          "encoding": "gzip",
+          "decodedSha256": "136bd5cee2a16034dbad0d136c584bb6173bbd90442eb6b2c859f462120bccd3"
+        },
+        {
+          "route": "/api/login",
+          "originalBytes": 3053,
+          "bodyBytes": 3053,
+          "savedPercent": 0.0,
+          "encoding": "identity",
+          "decodedSha256": "c5ffa43ff352a05ec253474761ec5f1badd5c615796f4252ea620a427b990cad"
+        }
+      ],
+      "elapsedSeconds": 0.183,
+      "p50Ms": 3.377,
+      "p95Ms": 4.687,
+      "p99Ms": 5.506,
+      "nginxWorkerCpuSeconds": 0.05,
+      "nginxWorkerCpuCorePercent": 27.34,
+      "sampleBodyBytes": 116000,
+      "interfaceTxBytes": {
+        "lo": 1652000,
+        "eth0": 0
+      },
+      "accessLogBodyBytes": 1303409,
+      "accessLogHttpBytes": 1360512
+    },
+    {
+      "level": 3,
+      "cases": [
+        {
+          "route": "/api/v2/records",
+          "originalBytes": 136,
+          "bodyBytes": 136,
+          "savedPercent": 0.0,
+          "encoding": "identity",
+          "decodedSha256": "c41ab6649863fc2b241b848869732c9edfb40d7e961fc1867877863d10b6949c"
+        },
+        {
+          "route": "/api/v2/records/42/overview",
+          "originalBytes": 813,
+          "bodyBytes": 813,
+          "savedPercent": 0.0,
+          "encoding": "identity",
+          "decodedSha256": "80002c4b9e61efb45928d48477f5f09d33d9f4b4cc0da3ab6e7ea8b5ac6d2c2e"
+        },
+        {
+          "route": "/api/v2/records/42/rounds",
+          "originalBytes": 5751,
+          "bodyBytes": 577,
+          "savedPercent": 89.97,
+          "encoding": "gzip",
+          "decodedSha256": "270fd9742ceadbad2e93f22924d4d580b3ace6006d61316546652d1e72150880"
+        },
+        {
+          "route": "/api/v2/records/42/rounds/1",
+          "originalBytes": 1418,
+          "bodyBytes": 359,
+          "savedPercent": 74.68,
+          "encoding": "gzip",
+          "decodedSha256": "7a259238c5e809fd7ee957df855dd63bc73646e718a1fab956bf1bd8649ac79f"
+        },
+        {
+          "route": "/api/records/42",
+          "originalBytes": 570195,
+          "bodyBytes": 20312,
+          "savedPercent": 96.44,
+          "encoding": "gzip",
+          "decodedSha256": "01e50b49414fa81cc9cbd0025e11eabf8f1c9a2eb6e90698c59f0129a04611da"
+        },
+        {
+          "route": "/api/v2/records/small",
+          "originalBytes": 41,
+          "bodyBytes": 41,
+          "savedPercent": 0.0,
+          "encoding": "identity",
+          "decodedSha256": "136bd5cee2a16034dbad0d136c584bb6173bbd90442eb6b2c859f462120bccd3"
+        },
+        {
+          "route": "/api/v2/records/small-chunked",
+          "originalBytes": 41,
+          "bodyBytes": 60,
+          "savedPercent": -46.34,
+          "encoding": "gzip",
+          "decodedSha256": "136bd5cee2a16034dbad0d136c584bb6173bbd90442eb6b2c859f462120bccd3"
+        },
+        {
+          "route": "/api/login",
+          "originalBytes": 3053,
+          "bodyBytes": 3053,
+          "savedPercent": 0.0,
+          "encoding": "identity",
+          "decodedSha256": "c5ffa43ff352a05ec253474761ec5f1badd5c615796f4252ea620a427b990cad"
+        }
+      ],
+      "elapsedSeconds": 0.199,
+      "p50Ms": 3.572,
+      "p95Ms": 5.499,
+      "p99Ms": 6.239,
+      "nginxWorkerCpuSeconds": 0.05,
+      "nginxWorkerCpuCorePercent": 25.08,
+      "sampleBodyBytes": 115400,
+      "interfaceTxBytes": {
+        "lo": 1651400,
+        "eth0": 1064
+      },
+      "accessLogBodyBytes": 1301899,
+      "accessLogHttpBytes": 1359002
+    }
+  ],
+  "regressionCounts": [
+    69,
+    82,
+    79
+  ],
+  "online": {
+    "at": "2026-10-11T15:22:21+08:00",
+    "metrics": {
+      "mahjong_players_online": 0.0,
+      "mahjong_host_network_transmit_bytes": 6461984775.0,
+      "mahjong_rooms_between": 0.0,
+      "process_cpu_usage": 0.010443864229765013,
+      "mahjong_players_idle": 0.0,
+      "mahjong_host_available": 1.0,
+      "mahjong_players_occupied": 0.0,
+      "system_cpu_usage": 0.08060741341991343,
+      "mahjong_host_memory_total": 1687056384.0,
+      "jvm_threads_live_threads": 43.0,
+      "mahjong_host_memory_available": 493789184.0,
+      "mahjong_rooms_playing": 0.0,
+      "mahjong_rooms_waiting": 0.0,
+      "mahjong_host_network_available": 1.0,
+      "mahjong_players_active": 0.0
+    },
+    "recordGzipHeader": true,
+    "jarSha256": "069ba5e5e017541a86ffa09f615cc4678d386f671a5b864b14a68ed7c44fce82"
+  },
+  "sources": [
+    {
+      "path": "HainanMaJhong\\capacity-build.log",
+      "sha256": "81f8d3ce8f3b228df7a8f6e0118d4e9980ae330c732f82b94ce9d48788e3beb5"
+    },
+    {
+      "path": "HainanMaJhong\\records-v2-package.log",
+      "sha256": "c4a0def105e12d1fcbc4cdd833f58191af6692953320082ce3af6de32019f139"
+    },
+    {
+      "path": "HainanMaJhong\\records-4.2-regression.log",
+      "sha256": "244e8abd59f5fdb6e6cb4c9cc67ce3ef2d06a13d86d9ca2ec4e15f512b1b3562"
+    },
+    {
+      "path": "docs\\performance\\results-2026-10-11-gzip\\gzip-results.json",
+      "sha256": "541519216201e55cdbb9dbfe63457b04ce2d0349ac0c1be543c8ef058006cdda"
+    },
+    {
+      "path": "docs\\performance\\results-2026-10-11-summary\\frontend-refresh-check.txt",
+      "sha256": "754770acf0459727bf7a84c7c9c6a1dda6a9fd3966c4686b032cbf8c58c82c32"
+    },
+    {
+      "path": "docs\\performance\\results-2026-10-11-summary\\online-status.txt",
+      "sha256": "2979e74d432ee2135688de1eae249fbe1120a66543b870adc52bb79e6ee300ef"
+    },
+    {
+      "path": "docs\\performance\\results-2026-10-11-summary\\online-config-check.txt",
+      "sha256": "b990235d75b4c58fbd6c4d72a2bdcb247f289a98b9e7d1c18a74647a38ba7a3f"
+    },
+    {
+      "path": "docs\\performance\\results-2026-10-11-summary\\online-jar-sha256.txt",
+      "sha256": "73ae6035476c01de43ae8fe281797470549a6164a0a95573dd2c16e2d334a4d0"
+    }
+  ]
+}

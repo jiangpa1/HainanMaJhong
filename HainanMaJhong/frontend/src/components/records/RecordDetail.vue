@@ -20,6 +20,8 @@ import { profile } from '../../api/api.js'
 const props = defineProps({
   /** RecordDetailVO */
   detail: { type: Object, default: null },
+  hideOverview: { type: Boolean, default: false },
+  hideEmpty: { type: Boolean, default: false },
 })
 
 const SEAT_CN = ['东', '南', '西', '北']
@@ -104,7 +106,7 @@ function roundMeta(r) {
 <template>
   <div class="rd-wrap">
     <!-- 概览：我的总分 + 胡牌次数 + 最高番 + 四家总分 -->
-    <section class="ov panel">
+    <section v-if="!hideOverview" class="ov panel">
       <div class="ov__hero">
         <div class="ov__me">
           <span class="ov__label">本场我的总分</span>
@@ -181,7 +183,7 @@ function roundMeta(r) {
         </div>
       </article>
 
-      <p v-if="!rounds.length" class="rd-empty panel">这一场还没有完成的小局。</p>
+      <p v-if="!rounds.length && !hideEmpty" class="rd-empty panel">这一场还没有完成的小局。</p>
     </div>
   </div>
 </template>

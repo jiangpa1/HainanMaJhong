@@ -10,6 +10,8 @@ import hainanMahjong.mapper.GameRoundsMapper;
 import hainanMahjong.mapper.GameSessionsMapper;
 import hainanMahjong.mapper.UserMapper;
 import hainanMahjong.pojo.User;
+import hainanMahjong.pojo.GameSessions;
+import hainanMahjong.exception.BusinessException;
 import hainanMahjong.service.RecordsService;
 import hainanMahjong.vo.recordvo.PlayerTotalVO;
 import hainanMahjong.vo.recordvo.RoundPlayerRowVO;
@@ -179,6 +181,19 @@ public class RecordsServiceImpl implements RecordsService {
             return notFoundDetail();
         }
 
+        // 过渡期旧接口也必须检查参与者，不能绕过 V2 的访问权限直接读取整场详情。
+        if (roomId != null) {
+            GameSessions session = gameSessionsMapper.selectById(sessionId);
+            boolean participant = false;
+            if (session != null && userId != null) {
+                try {
+                    List<?> ids = mapper.readValue(session.getPlayerIds(), List.class);
+                    participant = ids.stream().anyMatch(id -> id instanceof Number && ((Number) id).longValue() == userId);
+                } catch (Exception ignored) { /* 无法确认参与者时拒绝读取。 */ }
+            }
+            if (!participant) throw new BusinessException(403, "只能查看自己参与的战绩");
+        }
+
         // ② 本场每一把 × 四家（一次查询）
         List<RoundPlayerRowVO> rows = gameRoundsMapper.selectRoundsAll(sessionId);
 
@@ -258,7 +273,7 @@ public class RecordsServiceImpl implements RecordsService {
      * <p>★ 关键：局级字段在同一把的多行里是重复的，所以取 {@code group.get(0)}；
      * 人级字段每行不同，逐行转成 participant。</p>
      */
-    private List<RecordRoundVO> buildRounds(long userId, List<RoundPlayerRowVO> rows,
+    List<RecordRoundVO> buildRounds(long userId, List<RoundPlayerRowVO> rows,
                                             Map<Long, String> nicks) {
         // ① 分组（TreeMap 保证局数升序）
         Map<Integer, List<RoundPlayerRowVO>> byRound = new TreeMap<>();
@@ -330,7 +345,7 @@ public class RecordsServiceImpl implements RecordsService {
      * 而且报错栈只指向 Tomcat 的错误页，看不出是哪一步。
      * 查不到就退化成「玩家{id}」，不要把整页拖垮。</p>
      */
-    private String nickname(Long userId) {
+    String nickname(Long userId) {
         if (userId < 0) {
             return switch (userId.intValue()) {
                 case -1 -> "电脑·南";
@@ -388,7 +403,7 @@ public class RecordsServiceImpl implements RecordsService {
     // ==================== 辅助：JSON 解析 ====================
 
     /** {@code fan_info} JSON（{@code {番型枚举名: 倍数}}）→ 中文番型列表。 */
-    private List<String> parseFanTypes(String json) {
+    List<String> parseFanTypes(String json) {
         List<String> names = new ArrayList<>();
         if (json == null || json.isEmpty() || "{}".equals(json)) {
             return names;

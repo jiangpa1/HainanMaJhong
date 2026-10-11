@@ -3,6 +3,7 @@ package hainanMahjong.service.impl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import hainanMahjong.mapper.GameRoundsMapper;
 import hainanMahjong.mapper.GameSessionsMapper;
+import hainanMahjong.pojo.GameSessions;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,6 +29,9 @@ import java.util.List;
  */
 @Service
 public class RoundPersister {
+    private hainanMahjong.monitoring.CapacityMetrics metrics;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setCapacityMetrics(hainanMahjong.monitoring.CapacityMetrics metrics) { this.metrics = metrics; }
 
     private final GameSessionsMapper sessions;
     private final GameRoundsMapper rounds;
@@ -60,12 +64,18 @@ public class RoundPersister {
         sessions.disbandSession(sessionId);
     }
 
+    public GameSessions sessionForRestore(long sessionId) {
+        return sessions.selectById(sessionId);
+    }
+
+    public int lastCommittedRound(long sessionId) { return rounds.lastCommittedRound(sessionId); }
+
     /**
      * 事务内保存一把对局及其四家流水（<b>幂等</b>）。
      *
      * <p>同一 {@code (session_id, round_num)} 已存在（服务重启后重放同把）时，
-     * 复用其 round 并<b>覆盖</b>该把流水 —— 先清后写，避免撞唯一键 {@code uk_round_user}
-     * 或残留半截数据；最后推进 {@code game_sessions.current_round}。</p>
+     * 返回已提交的 round，不覆盖流水或重复计入。通过会话行锁串行结算与关闭，
+     * 新结算的明细、四家流水和进度在一个事务内提交。</p>
      *
      * @param winHandJson  {@code win_hand} 的 JSON 字符串（可为 null）
      * @param fanInfoJson  {@code fan_info} 的 JSON 字符串（流局时通常是 {@code "{}"}）
@@ -77,28 +87,29 @@ public class RoundPersister {
                          String winHandJson, String fanInfoJson, int totalFan,
                          String dealerName, int windIdx,
                          List<GameRoundsMapper.ScoreRow> scores) {
+        // 与关闭和重复结算串行，已结束的会话不能再接收旧回调。
+        GameSessions session = sessions.lockSession(sessionId);
+        if (session == null || session.getStatus() != 0 || session.getEndTime() != null) {
+            throw new IllegalStateException("会话已结束，拒绝结算");
+        }
         // ① 找/建本把
         Long roundId = rounds.findRoundId(sessionId, roundNum);
-        if (roundId == null) {
-            GameRoundsMapper.RoundInsert row = new GameRoundsMapper.RoundInsert();
-            row.sessionId = sessionId;
-            row.roundNum = roundNum;
-            row.isDraw = isDraw ? 1 : 0;
-            row.winType = winType;
-            row.winnerId = winnerId;
-            row.loserId = loserId;
-            row.winTile = winTile;
-            row.winHandJson = winHandJson;
-            row.fanInfoJson = fanInfoJson;
-            row.totalFan = totalFan;
-            row.dealer = dealerName;
-            row.wind = windIdx;
-            rounds.insertRound(row);
-            roundId = row.id;
-        } else {
-            // 续跑重放同把：清掉可能残留的半截流水，按最新结算整把重写
-            rounds.deleteScoresByRound(roundId);
-        }
+        if (roundId != null) return roundId; // 已提交的结算不再覆盖或重复计入
+        GameRoundsMapper.RoundInsert row = new GameRoundsMapper.RoundInsert();
+        row.sessionId = sessionId;
+        row.roundNum = roundNum;
+        row.isDraw = isDraw ? 1 : 0;
+        row.winType = winType;
+        row.winnerId = winnerId;
+        row.loserId = loserId;
+        row.winTile = winTile;
+        row.winHandJson = winHandJson;
+        row.fanInfoJson = fanInfoJson;
+        row.totalFan = totalFan;
+        row.dealer = dealerName;
+        row.wind = windIdx;
+        rounds.insertRound(row);
+        roundId = row.id;
 
         // ② 写四家流水
         if (scores != null) {
@@ -110,6 +121,12 @@ public class RoundPersister {
 
         // ③ 推进进度
         sessions.updateCurrentRound(sessionId, roundNum);
+        if (metrics != null && org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                new org.springframework.transaction.support.TransactionSynchronization() {
+                    @Override public void afterCommit() { metrics.count("mahjong.game.rounds.committed"); }
+                });
+        }
         return roundId;
     }
 }

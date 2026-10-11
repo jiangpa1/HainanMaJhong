@@ -56,7 +56,7 @@ public class TokenServiceImpl implements TokenService {
              * 刷新也走这里，所以同一台设备续期后依然是"当前会话"。
              */
             stringRedisTemplate.opsForValue().set(CacheKeys.tokenSession(userId),
-                    jwtUtils.hashToken(accessToken), jwtProperties.getRefreshExpiration());
+                    jwtUtils.hashToken(accessToken), jwtProperties.getAccessExpiration());
         } catch (Exception e) {
             log.warn("登录缓存不可写", e);
             throw new BusinessException(503, "服务暂时不可用");

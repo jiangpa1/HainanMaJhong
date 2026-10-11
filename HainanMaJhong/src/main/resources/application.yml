@@ -13,6 +13,9 @@
 # 1. 服务端口配置（各 profile 里可以用 SERVER_PORT 覆盖）
 server:
   port: 8080
+  tomcat:
+    mbeanregistry:
+      enabled: true
 
 # 2. Spring 基础配置
 spring:
@@ -36,3 +39,35 @@ mybatis-plus:
   configuration:
     # 开启驼峰命名映射（数据库的 user_name 自动映射为 Java 的 userName）
     map-underscore-to-camel-case: true
+
+# 容量监控只监听回环地址，通过 SSH 隧道或本机 Prometheus 采集。
+management:
+  server:
+    port: ${MANAGEMENT_PORT:9091}
+    address: 127.0.0.1
+  endpoints:
+    enabled-by-default: false
+    web:
+      exposure:
+        include: health,prometheus
+    jmx:
+      exposure:
+        exclude: '*'
+  endpoint:
+    health:
+      enabled: true
+      show-details: never
+    prometheus:
+      enabled: true
+  metrics:
+    tags:
+      application: HainanMahjong
+    distribution:
+      percentiles-histogram:
+        jvm.gc.pause: true
+        hikaricp.connections.acquire: true
+
+capacity:
+  sample-ms: 10000
+  external-probes-enabled: ${CAPACITY_EXTERNAL_PROBES_ENABLED:false}
+  network-interface: ${CAPACITY_NETWORK_INTERFACE:eth0}

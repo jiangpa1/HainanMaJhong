@@ -83,7 +83,7 @@ class DiscardDeadlockTest {
         RoomRegistry registry = new RoomRegistry();
 
         Room room = new Room("LOCK02", 1L);
-        room.state = State.PLAYING;
+        room.state = State.WAITING;
 
         FakeSession roomWs = new FakeSession("room-x");
         FakeSession gameWs = new FakeSession("game-x");
@@ -106,7 +106,7 @@ class DiscardDeadlockTest {
 
         RoomService rooms = mock(RoomService.class);
         RoundPersister persister = mock(RoundPersister.class);
-        when(persister.createSession(anyString(), anyLong(), anyList())).thenReturn(-1L);
+        when(persister.createSession(anyString(), anyLong(), anyList())).thenReturn(1L);
 
         GamePushService push = new GamePushServiceImpl();
         RoomSnapshotService snapshots = mock(RoomSnapshotService.class);

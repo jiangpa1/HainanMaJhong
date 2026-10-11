@@ -33,6 +33,8 @@ public class RoomRegistry {
 
     /** 房间码 → 房间。 */
     private final ConcurrentHashMap<String, Room> roomsByCode = new ConcurrentHashMap<>();
+    // 房间码空间有界，防止本进程在 Redis 关闭保护失败时恢复刚关闭的一代。
+    private final ConcurrentHashMap<String, String> closedGenerations = new ConcurrentHashMap<>();
 
     /** 用户 → 所在房间码。 */
     private final ConcurrentHashMap<Long, String> codeByUser = new ConcurrentHashMap<>();
@@ -48,6 +50,7 @@ public class RoomRegistry {
 
     /** /game 连接的 sessionId → 座位。 */
     private final ConcurrentHashMap<String, Seat> gameSeatOfSession = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, String> gameGenerationOfSession = new ConcurrentHashMap<>();
 
     // ==================== 房间 ====================
 
@@ -70,7 +73,9 @@ public class RoomRegistry {
         if (room == null || room.code == null) {
             return;
         }
-        roomsByCode.put(room.code, room);
+        if (roomsByCode.putIfAbsent(room.code, room) != null) {
+            throw new IllegalStateException("房间码已被占用");
+        }
         codeByUser.put(room.hostUserId, room.code);
     }
 
@@ -84,7 +89,8 @@ public class RoomRegistry {
         if (room == null || room.code == null) {
             return;
         }
-        roomsByCode.remove(room.code);
+        closedGenerations.put(room.code, room.generation);
+        if (!roomsByCode.remove(room.code, room)) return;
         for (Member m : new ArrayList<>(room.members.values())) {
             if (m != null) {
                 codeByUser.remove(m.userId, room.code);
@@ -116,8 +122,13 @@ public class RoomRegistry {
             return existing;
         }
         Room built = builder.apply(code);
-        if (built == null) {
+        if (built == null || built.state == State.CLOSED
+                || built.generation.equals(closedGenerations.get(code))) {
             return null;
+        }
+        for (Member m : built.members.values()) {
+            String bound = codeByUser.get(m.userId);
+            if (m.userId > 0 && bound != null && !bound.equals(code)) return null;
         }
         roomsByCode.put(code, built);
         for (Member m : new ArrayList<>(built.members.values())) {
@@ -181,6 +192,13 @@ public class RoomRegistry {
         gameUserOfSession.put(id, userId);
         gameCodeOfSession.put(id, code);
         gameSeatOfSession.put(id, seat);
+        Room room = roomsByCode.get(code);
+        if (room != null) gameGenerationOfSession.put(id, room.generation);
+    }
+
+    public synchronized boolean isGameSessionCurrent(WebSocketSession session, Room room) {
+        return session != null && room != null
+                && room.generation.equals(gameGenerationOfSession.get(session.getId()));
     }
 
     /** 取 /game 连接对应的用户；未记录返回 null。 */
@@ -202,6 +220,7 @@ public class RoomRegistry {
         gameUserOfSession.remove(id);
         gameCodeOfSession.remove(id);
         gameSeatOfSession.remove(id);
+        gameGenerationOfSession.remove(id);
     }
 
     // ==================== 维护用 ====================

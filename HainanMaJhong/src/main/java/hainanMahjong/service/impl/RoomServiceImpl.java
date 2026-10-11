@@ -85,8 +85,12 @@ public class RoomServiceImpl implements RoomService {
         Room room;
         do {
             code = String.valueOf(100000 + random.nextInt(900000));
-        } while (registry.contains(code));
+        } while (registry.contains(code) || redis.getRoomState(code) != null);
         room = new Room(code, userId);
+        if (!redis.beginRoom(code, room.generation)) {
+            push.sendJson(session, denied("房间创建冲突，请重试"));
+            return;
+        }
         room.cfg = parseConfig(cfgRaw);
         // 房主随机入座（而不是固定东），使整桌座位与进房顺序无关
         Seat seat0 = Seat.values()[random.nextInt(4)];
@@ -117,6 +121,10 @@ public class RoomServiceImpl implements RoomService {
             return false;
         }
         synchronized (room) {
+            if (room.state == State.CLOSED) {
+                push.sendJson(session, denied("房间已解散"));
+                return false;
+            }
             Member existing = Member.byId(room, userId);
             if (existing != null) {
                 existing.roomWs = session;
@@ -226,64 +234,85 @@ public class RoomServiceImpl implements RoomService {
 
     @Override
     public void disband(Room room, String reason) {
-        String text = (reason == null) ? "房间已解散" : reason;
-        List<Member> ms = new ArrayList<>(room.members.values());
-        for (Member m : ms) {
-            Map<String, Object> msg = new HashMap<>();
-            msg.put("type", "room_closed");
-            msg.put("reason", text);
-            if (m.roomWs != null && m.roomWs.isOpen()) {
-                push.sendJson(m.roomWs, msg);
+        synchronized (room) {
+            if (room.state == State.CLOSED) return;
+            String text = (reason == null) ? "房间已解散" : reason;
+            List<Member> ms = new ArrayList<>(room.members.values());
+            for (Member m : ms) {
+                Map<String, Object> msg = new HashMap<>();
+                msg.put("type", "room_closed");
+                msg.put("reason", text);
+                if (m.roomWs != null && m.roomWs.isOpen()) {
+                    push.sendJson(m.roomWs, msg);
+                }
+                if (m.gameWs != null && m.gameWs.isOpen()) {
+                    push.sendJson(m.gameWs, msg);
+                }
             }
-            if (m.gameWs != null && m.gameWs.isOpen()) {
-                push.sendJson(m.gameWs, msg);
-            }
+            stopAndClear(room);
+            log.info("房间 {} 解散：{}", room.code, text);
         }
-        stopAndClear(room);
-        log.info("房间 {} 解散：{}", room.code, text);
     }
 
     @Override
     public void stopAndClear(Room room) {
-        /*
-         * 收口：房间一旦销毁，就把这一场的结束时间落库。
-         *
-         * 这里刻意放在 stopAndClear（房间销毁的唯一收口）而不是各个调用点：
-         * 之前只清了内存，game_sessions 的 end_time 一直是 NULL、status 一直停在"进行中"，
-         * 战绩页那一场永远显示成"没打完"，也永远排不进已完成列表。
-         * 注意 stopAndClear 只在【房间真的没了】时调用（正常打完一轮走的是
-         * BETWEEN + 广播 match_finish，不经过这里），所以不会把"再来一轮"的场次误关掉。
-         */
-        if (room.sessionId > 0) {
+        synchronized (room) {
+            if (room.state == State.CLOSED) return;
+            room.state = State.CLOSED;
+            room.stop = true;
+            room.resumeSeed = null;
+            // 标记关闭与删除快照原子完成；失败显式记录并有限重试。
+            retryClose(room);
+            /*
+             * 收口：房间一旦销毁，就把这一场的结束时间落库。
+             *
+             * 这里刻意放在 stopAndClear（房间销毁的唯一收口）而不是各个调用点：
+             * 之前只清了内存，game_sessions 的 end_time 一直是 NULL、status 一直停在"进行中"，
+             * 战绩页那一场永远显示成"没打完"，也永远排不进已完成列表。
+             * 注意 stopAndClear 只在【房间真的没了】时调用（正常打完一轮走的是
+             * BETWEEN + 广播 match_finish，不经过这里），所以不会把"再来一轮"的场次误关掉。
+             */
+            if (room.sessionId > 0) {
+                try {
+                    roundPersist.disbandSession(room.sessionId);
+                } catch (Exception e) {
+                    log.warn("房间 {} 结束时写 end_time 失败：{}", room.code, e.getMessage());
+                }
+            }
+            RoomManager active = room.active;
+            if (active != null) {
+                try {
+                    active.cancel();
+                } catch (Exception e) {
+                    log.warn("取消房间 {} 引擎失败", room.code, e);
+                }
+            }
+            room.active = null;
+            Thread thread = room.blockThread;
+            if (thread != null && thread != Thread.currentThread()) thread.interrupt();
+            List<Member> ms = new ArrayList<>(room.members.values());
+            registry.unregister(room);
+            for (Member m : ms) {
+                registry.unbindUser(m.userId, room.code);
+                m.roomWs = null;
+                m.gameWs = null;
+            }
+            room.members.clear();
+        }
+    }
+
+    private void retryClose(Room room) {
+        for (int attempt = 1; attempt <= 3; attempt++) {
             try {
-                roundPersist.disbandSession(room.sessionId);
+                if (!redis.closeRoom(room.code, room.generation)) {
+                    log.warn("关闭快照被拒绝（房间码已属于新一代）code={} generation={}", room.code, room.generation);
+                }
+                return;
             } catch (Exception e) {
-                log.warn("房间 {} 结束时写 end_time 失败：{}", room.code, e.getMessage());
+                log.warn("关闭快照失败 code={} generation={} attempt={}", room.code, room.generation, attempt, e);
             }
         }
-        room.state = State.BETWEEN;
-        room.stop = true;
-        RoomManager active = room.active;
-        if (active != null) {
-            try {
-                active.cancel();
-            } catch (Exception e) {
-                // 忽略
-            }
-        }
-        List<Member> ms = new ArrayList<>(room.members.values());
-        registry.unregister(room);
-        for (Member m : ms) {
-            registry.unbindUser(m.userId, room.code);
-            m.roomWs = null;
-            m.gameWs = null;
-        }
-        room.members.clear();
-        try {
-            redis.deleteRoomState(room.code);
-        } catch (Exception e) {
-            // 忽略
-        }
+        log.error("房间 {} 关闭保护未写入，需运维重试核对", room.code);
     }
 
     // ==================== 从 Redis 重建 ====================
@@ -388,12 +417,48 @@ public class RoomServiceImpl implements RoomService {
         }
         try {
             RedisRoom rs = mapper.readValue(json, RedisRoom.class);
-            Room room = new Room(code, rs.hostUserId);
+            State restoredState = State.valueOf(rs.state);
+            if (restoredState == State.CLOSED || rs.hostUserId <= 0 || rs.members == null
+                    || rs.members.isEmpty() || rs.members.size() > MAX_MEMBERS
+                    || (restoredState != State.WAITING && rs.members.size() != MAX_MEMBERS)) return null;
+            java.util.Set<Long> users = new java.util.HashSet<>();
+            java.util.Set<Seat> seats = new java.util.HashSet<>();
+            for (MemberInfo mi : rs.members) {
+                if (mi == null || mi.userId == 0 || !users.add(mi.userId)
+                        || !seats.add(Seat.valueOf(mi.seat))) return null;
+                if (mi.userId < 0 && mi.userId != hainanMahjong.room.RoomSupport.botUserId(Seat.valueOf(mi.seat))) return null;
+            }
+            if (!users.contains(rs.hostUserId)) return null;
+            if (restoredState != State.WAITING && (rs.firstDealer == null || rs.flowHandNo < 1)) return null;
+            if (rs.sessionId > 0) {
+                hainanMahjong.pojo.GameSessions db = roundPersist.sessionForRestore(rs.sessionId);
+                if (db == null || db.getStatus() != 0 || db.getEndTime() != null
+                        || !code.equals(db.getRoomId()) || !Long.valueOf(rs.hostUserId).equals(db.getCreateId())) return null;
+                List<Long> players = mapper.readValue(db.getPlayerIds(),
+                        new com.fasterxml.jackson.core.type.TypeReference<List<Long>>() {});
+                if (players.size() != MAX_MEMBERS) return null;
+                for (MemberInfo mi : rs.members) {
+                    if (!Long.valueOf(mi.userId).equals(players.get(Seat.valueOf(mi.seat).ordinal()))) return null;
+                }
+                if (restoredState != State.WAITING) {
+                    int nextHand = rs.snapshot == null ? rs.flowHandNo : rs.currentHand;
+                    if (nextHand <= roundPersist.lastCommittedRound(rs.sessionId)) {
+                        log.warn("拒绝恢复落后于已提交结算的快照 code={} session={}", code, rs.sessionId);
+                        return null;
+                    }
+                }
+            } else if (restoredState != State.WAITING) return null;
+            // 旧格式使用确定性的标识，多个恢复请求必须认领同一代。
+            String generation = rs.generation == null
+                    ? "legacy-" + java.util.UUID.nameUUIDFromBytes(json.getBytes(java.nio.charset.StandardCharsets.UTF_8)) : rs.generation;
+            if (!redis.claimRestore(code, json, generation, rs.version, rs.sessionId)) return null;
+            Room room = new Room(code, rs.hostUserId, generation);
+            room.snapshotVersion = rs.version;
             for (MemberInfo mi : rs.members) {
                 Seat s = Seat.valueOf(mi.seat);
                 room.members.put(s, new Member(s, mi.userId, mi.nickname, null));
             }
-            room.state = State.valueOf(rs.state);
+            room.state = restoredState == State.PLAYING && rs.flowFinished ? State.BETWEEN : restoredState;
             room.blockNo = rs.blockNo;
             room.sessionId = rs.sessionId;
             room.currentHand = rs.currentHand;
@@ -413,6 +478,7 @@ public class RoomServiceImpl implements RoomService {
                         rs.firstDealerBegins > 0 ? rs.firstDealerBegins : 1, rs.handsPlayed);
             }
             room.flow = flow;
+            if (flow != null) flow.finished = rs.flowFinished;
             if (room.state == State.PLAYING) {
                 EngineStart seed = new EngineStart();
                 seed.sessionId = rs.sessionId;

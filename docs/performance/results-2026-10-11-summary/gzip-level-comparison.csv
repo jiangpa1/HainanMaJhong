@@ -1,0 +1,5 @@
+﻿level,firstPageBodyBytes,sampleBodyBytes,p95Ms,workerCpuSeconds,loopbackTxBytes,eth0TxBytes
+0,5751,1150200,5.478,0.04,2674104,54
+1,585,117000,4.756,0.04,1653000,5270
+2,580,116000,4.687,0.05,1652000,0
+3,577,115400,5.499,0.05,1651400,1064

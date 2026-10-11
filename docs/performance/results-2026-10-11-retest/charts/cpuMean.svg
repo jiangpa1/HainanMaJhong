@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE svg
+  PUBLIC '-//W3C//DTD SVG 1.0//EN'
+  'http://www.w3.org/TR/2001/REC-SVG-20010904/DTD/svg10.dtd'>
+<svg width="487" height="181" preserveAspectRatio="xMinYMin meet" viewBox="0 0 487 181" xmlns="http://www.w3.org/2000/svg" version="1.0" fill-rule="evenodd" xmlns:xlink="http://www.w3.org/1999/xlink">
+	<title>...</title>
+	<desc>...</desc>
+	<clipPath id="clip">
+		<rect x="0" y="0" width="487" height="181"/>
+	</clipPath>
+	<g id="group" transform="scale(1,-1) translate(0,-181)" style="clip-path: url(#clip)">
+		<g transform="">
+			<text x="0" y="166" style="font-family: CN; font-size: 12px;fill: rgb(0%,0%,0%); stroke:none;" transform="translate(0,332) scale(1,-1)">CPU 平均占用</text>
+			<g transform="">
+				<g transform="">
+					<rect x="145.0" y="34.0" width="216.7622437586822" height="16.0" style="stroke: rgb(0%,0%,0%); stroke-linecap: butt; stroke-width: 1; fill: rgb(9%,41%,54%); fill-rule: evenodd;"/>
+					<rect x="145.0" y="58.0" width="250.38796613833478" height="16.0" style="stroke: rgb(0%,0%,0%); stroke-linecap: butt; stroke-width: 1; fill: rgb(9%,41%,54%); fill-rule: evenodd;"/>
+					<rect x="145.0" y="82.0" width="239.90180400145192" height="16.0" style="stroke: rgb(0%,0%,0%); stroke-linecap: butt; stroke-width: 1; fill: rgb(9%,41%,54%); fill-rule: evenodd;"/>
+					<rect x="145.0" y="106.0" width="270.0" height="16.0" style="stroke: rgb(0%,0%,0%); stroke-linecap: butt; stroke-width: 1; fill: rgb(9%,41%,54%); fill-rule: evenodd;"/>
+					<g transform="">
+						<g transform=" matrix(1,0,0,1,361.762244,42)">
+							<text x="-8.0" y="-3.2" style="font-family: CN; font-size: 8px;fill: rgb(0%,0%,0%); stroke:none;" transform="translate(0,-6) scale(1,-1)">48.3</text>
+						</g>
+						<g transform=" matrix(1,0,0,1,395.387966,66)">
+							<text x="-8.0" y="-3.2" style="font-family: CN; font-size: 8px;fill: rgb(0%,0%,0%); stroke:none;" transform="translate(0,-6) scale(1,-1)">55.7</text>
+						</g>
+						<g transform=" matrix(1,0,0,1,384.901804,90)">
+							<text x="-8.0" y="-3.2" style="font-family: CN; font-size: 8px;fill: rgb(0%,0%,0%); stroke:none;" transform="translate(0,-6) scale(1,-1)">53.4</text>
+						</g>
+						<g transform=" matrix(1,0,0,1,415,114)">
+							<text x="-8.0" y="-3.2" style="font-family: CN; font-size: 8px;fill: rgb(0%,0%,0%); stroke:none;" transform="translate(0,-6) scale(1,-1)">60.1</text>
+						</g>
+					</g>
+				</g>
+				<g transform="">
+					<g transform="">
+						<path d="M 145,30 L 145,126 Z" style="stroke: rgb(0%,0%,0%); stroke-linecap: butt; stroke-width: 1;"/>
+					</g>
+					<g transform="">
+						<path d="M 145,30 L 140,30 Z" style="stroke: rgb(0%,0%,0%); stroke-linecap: butt; stroke-width: 1;"/>
+						<path d="M 145,54 L 140,54 Z" style="stroke: rgb(0%,0%,0%); stroke-linecap: butt; stroke-width: 1;"/>
+						<path d="M 145,78 L 140,78 Z" style="stroke: rgb(0%,0%,0%); stroke-linecap: butt; stroke-width: 1;"/>
+						<path d="M 145,102 L 140,102 Z" style="stroke: rgb(0%,0%,0%); stroke-linecap: butt; stroke-width: 1;"/>
+						<path d="M 145,126 L 140,126 Z" style="stroke: rgb(0%,0%,0%); stroke-linecap: butt; stroke-width: 1;"/>
+					</g>
+					<g transform="">
+						<g transform=" matrix(1,0,0,1,140,42)">
+							<text x="-44.0" y="-3.2" style="font-family: CN; font-size: 8px;fill: rgb(0%,0%,0%); stroke:none;" transform="translate(0,-6) scale(1,-1)">10/09 192人</text>
+						</g>
+						<g transform=" matrix(1,0,0,1,140,66)">
+							<text x="-84.0" y="-3.2" style="font-family: CN; font-size: 8px;fill: rgb(0%,0%,0%); stroke:none;" transform="translate(0,-6) scale(1,-1)">legacy identity 192人</text>
+						</g>
+						<g transform=" matrix(1,0,0,1,140,90)">
+							<text x="-88.0" y="-3.2" style="font-family: CN; font-size: 8px;fill: rgb(0%,0%,0%); stroke:none;" transform="translate(0,-6) scale(1,-1)">legacy gzip 192人 复测</text>
+						</g>
+						<g transform=" matrix(1,0,0,1,140,114)">
+							<text x="-52.0" y="-3.2" style="font-family: CN; font-size: 8px;fill: rgb(0%,0%,0%); stroke:none;" transform="translate(0,-6) scale(1,-1)">v2 gzip 192人</text>
+						</g>
+					</g>
+				</g>
+				<g transform="">
+					<g transform="">
+						<path d="M 145,30 L 415,30 Z" style="stroke: rgb(0%,0%,0%); stroke-linecap: butt; stroke-width: 1;"/>
+					</g>
+					<g transform="">
+						<path d="M 145,30 L 145,25 Z" style="stroke: rgb(0%,0%,0%); stroke-linecap: butt; stroke-width: 1;"/>
+						<path d="M 234.84946,30 L 234.84946,25 Z" style="stroke: rgb(0%,0%,0%); stroke-linecap: butt; stroke-width: 1;"/>
+						<path d="M 324.698921,30 L 324.698921,25 Z" style="stroke: rgb(0%,0%,0%); stroke-linecap: butt; stroke-width: 1;"/>
+						<path d="M 414.548381,30 L 414.548381,25 Z" style="stroke: rgb(0%,0%,0%); stroke-linecap: butt; stroke-width: 1;"/>
+					</g>
+					<g transform="">
+						<g transform=" matrix(1,0,0,1,145,25)">
+							<text x="-2.0" y="-8.0" style="font-family: CN; font-size: 8px;fill: rgb(0%,0%,0%); stroke:none;" transform="translate(0,-16) scale(1,-1)">0</text>
+						</g>
+						<g transform=" matrix(1,0,0,1,234.84946,25)">
+							<text x="-4.0" y="-8.0" style="font-family: CN; font-size: 8px;fill: rgb(0%,0%,0%); stroke:none;" transform="translate(0,-16) scale(1,-1)">20</text>
+						</g>
+						<g transform=" matrix(1,0,0,1,324.698921,25)">
+							<text x="-4.0" y="-8.0" style="font-family: CN; font-size: 8px;fill: rgb(0%,0%,0%); stroke:none;" transform="translate(0,-16) scale(1,-1)">40</text>
+						</g>
+						<g transform=" matrix(1,0,0,1,414.548381,25)">
+							<text x="-4.0" y="-8.0" style="font-family: CN; font-size: 8px;fill: rgb(0%,0%,0%); stroke:none;" transform="translate(0,-16) scale(1,-1)">60</text>
+						</g>
+					</g>
+				</g>
+			</g>
+			<text x="415" y="10" style="font-family: CN; font-size: 8px;fill: rgb(0%,0%,0%); stroke:none;" transform="translate(0,20) scale(1,-1)">%</text>
+		</g>
+	</g>
+</svg>

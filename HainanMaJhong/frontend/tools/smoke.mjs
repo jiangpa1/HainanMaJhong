@@ -194,6 +194,7 @@ try {
     logLevel: 'silent',
     plugins: [vuePlugin(), vueShimPlugin()],
     define: {
+      'import.meta.env.VITE_RECORDS_API_V2': '"false"',
       'process.env.NODE_ENV': '"development"',
       __VUE_OPTIONS_API__: 'true',
       __VUE_PROD_DEVTOOLS__: 'false',

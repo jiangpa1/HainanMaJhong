@@ -106,6 +106,9 @@ export class GameSocket {
         return
       }
       this.onMessage?.(msg)
+      if (this.path === '/game' && Number.isSafeInteger(msg._monitorSeq) && msg._monitorSeq > 0 && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'metricsAck', seq: msg._monitorSeq }))
+      }
     }
 
     ws.onerror = () => {

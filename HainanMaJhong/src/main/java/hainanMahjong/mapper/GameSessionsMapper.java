@@ -79,8 +79,11 @@ public interface GameSessionsMapper extends BaseMapper<GameSessions> {
      *
      * <p>对应原 {@code MysqlService.disbandSession}。</p>
      */
-    @Update("UPDATE game_sessions SET status = 2, end_time = NOW() WHERE id = #{sessionId}")
+    @Update("UPDATE game_sessions SET status = 2, end_time = NOW() WHERE id = #{sessionId} AND end_time IS NULL AND status = 0")
     int disbandSession(@Param("sessionId") Long sessionId);
+
+    @Select("SELECT id, room_id, creator_id, player_ids, current_round, status, start_time, end_time FROM game_sessions WHERE id = #{sessionId} FOR UPDATE")
+    GameSessions lockSession(@Param("sessionId") long sessionId);
 
     /** 推进本场进度到第几把（每把结算后调用）。 */
     @Update("UPDATE game_sessions SET current_round = #{roundNum} WHERE id = #{sessionId}")

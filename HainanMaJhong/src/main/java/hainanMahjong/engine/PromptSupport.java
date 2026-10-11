@@ -29,6 +29,7 @@ import java.util.function.Consumer;
  * <p>从 {@code RoomManager} 抽出，逻辑逐字保留。</p>
  */
 public class PromptSupport {
+    private volatile boolean closed;
 
     /** 定时器；为 null 时不启用超时（只等应答）。 */
     private final ScheduledExecutorService scheduler;
@@ -42,6 +43,12 @@ public class PromptSupport {
     public PromptSupport(ScheduledExecutorService scheduler, GameListener listener) {
         this.scheduler = scheduler;
         this.listener = listener;
+        if (scheduler instanceof java.util.concurrent.ScheduledThreadPoolExecutor executor)
+            executor.setRemoveOnCancelPolicy(true);
+    }
+
+    public int pendingTimerCount() {
+        return scheduler instanceof java.util.concurrent.ScheduledThreadPoolExecutor executor ? executor.getQueue().size() : 0;
     }
 
     /**
@@ -56,6 +63,7 @@ public class PromptSupport {
      */
     public <T> T prompt(Seat seat, String what, long timeoutMs,
                         Consumer<Consumer<T>> body, T forced) {
+        if (closed) return forced;
         final Object lock = new Object();
         final boolean[] done = {false};
         final Object[] box = new Object[1];
@@ -83,8 +91,14 @@ public class PromptSupport {
         pendingForce = force;
 
         ScheduledFuture<?> f = null;
-        if (scheduler != null && timeoutMs > 0) {
-            f = scheduler.schedule(force, timeoutMs, TimeUnit.MILLISECONDS);
+        if (closed) {
+            force.run();
+        } else if (scheduler != null && timeoutMs > 0) {
+            try {
+                f = scheduler.schedule(force, timeoutMs, TimeUnit.MILLISECONDS);
+            } catch (java.util.concurrent.RejectedExecutionException e) {
+                force.run(); // 取消与注册超时任务并发，不再阻塞等待
+            }
         }
         try {
             body.accept(reply);
@@ -122,6 +136,8 @@ public class PromptSupport {
 
     /** 关闭内部定时器（每把结束时调用）。 */
     public void shutdown() {
+        closed = true;
+        forceNow();
         if (scheduler != null) {
             scheduler.shutdownNow();
         }

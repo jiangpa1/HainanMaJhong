@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { GameSocket } from '../game/socket.js'
 import { handleKicked } from '../api/api.js'
+import { notifyRecordCommit, notifyRecordReconnect } from '../api/recordReads.js'
 import { seatRing } from '../game/tiles.js'
 import { playEffect, playMeldSound, playVoice, chatVoiceOf, huSoundName, playTileSound, playNoticeVoice } from '../game/audio.js'
 
@@ -189,6 +190,7 @@ export const useGameStore = defineStore('game', {
         onMessage: (msg) => this.handle(msg),
         onState: (s) => {
           this.connState = s
+          if (s === 'open') notifyRecordReconnect(this.roomCode)
         },
         onAuthFailed: (reason) => {
           this.authError = reason
@@ -546,6 +548,7 @@ export const useGameStore = defineStore('game', {
      * 改成：hu 时先记下"结算前的金币"（coinBefore），coins 到达时再和它相减。
      */
     onCoins(m) {
+      notifyRecordCommit(Number(m.sessionId), Number(m.committedRoundNum), this.roomCode)
       if (!m.coins) return
       const now = m.coins
       // 本把战果已记录但还没算分 → 用记录里的基准算差额

@@ -16,6 +16,8 @@
  * 注意：WebSocket 握手是例外，它返回真实的 401（见 socket.js 的说明）。
  */
 
+import { readRecord, resetRecordReads } from './recordReads.js'
+
 const TOKEN_KEY = 'accessToken'
 const REFRESH_KEY = 'refreshToken'
 const PROFILE_KEY = 'profile'
@@ -55,6 +57,7 @@ export function setTokens(pair) {
 }
 
 export function clearAuth() {
+  resetRecordReads()
   for (const k of [TOKEN_KEY, REFRESH_KEY, PROFILE_KEY, EXPIRES_AT_KEY, TTL_KEY, 'userId', 'nickname', 'username']) {
     localStorage.removeItem(k)
   }
@@ -348,18 +351,62 @@ export function updatePassword(oldPassword, newPassword, confirmNewPassword) {
  * 传超过 20 会被参数校验直接打回 400，请求到不了数据库，页面表现为"一条战绩都没有"。
  * 这个坑真实发生过，别改成 50。
  */
-export function records(pageNum = 1, pageSize = 20) {
+export function records(pageNum = 1, pageSize = 20, readThroughSessionId) {
+  if (recordsApiV2Enabled) return recordsV2.list(pageNum, pageSize, readThroughSessionId)
   const size = Math.max(1, Math.min(20, Number(pageSize) || 20))
-  return request(`/api/records?pageNum=${Number(pageNum) || 1}&pageSize=${size}`, { raw: true })
+  return recordRequest(`/api/records?pageNum=${Number(pageNum) || 1}&pageSize=${size}`, { raw: true })
 }
 
 export function recordsByRoom(roomId) {
-  return request(`/api/records/byRoom?roomId=${encodeURIComponent(roomId)}`)
+  if (recordsApiV2Enabled) return recordsV2.byRoom(roomId).then(overview => ({ _v2: true, roomId: overview.roomId, sessionId: overview.sessionId, overview }))
+  return recordRequest(`/api/records/byRoom?roomId=${encodeURIComponent(roomId)}`)
 }
 
 export function recordDetail(sessionId) {
-  return request(`/api/records/${encodeURIComponent(sessionId)}`)
+  if (recordsApiV2Enabled) return recordsV2.overview(sessionId).then(overview => ({ _v2: true, roomId: overview.roomId, sessionId: overview.sessionId, overview }))
+  return recordRequest(`/api/records/${encodeURIComponent(sessionId)}`)
 }
+
+function recordRequest(url, options = {}, cacheOptions = {}) {
+  return readRecord(`${getToken()}:${url}`, () => request(url, options), cacheOptions)
+}
+
+/** V2 只提供有界查询，禁止在适配层偷偷遍历所有页面。 */
+export const recordsV2 = {
+  list(pageNum = 1, pageSize = 10, readThroughSessionId) {
+    const q = new URLSearchParams({ pageNum, pageSize })
+    if (readThroughSessionId != null) q.set('readThroughSessionId', readThroughSessionId)
+    return recordRequest(`/api/v2/records?${q}`, { raw: true })
+  },
+  byRoom(roomId) {
+    return recordRequest(`/api/v2/records/byRoom?roomId=${encodeURIComponent(roomId)}`)
+  },
+  overview(sessionId, readThroughRoundNum) {
+    const q = new URLSearchParams()
+    if (readThroughRoundNum != null) q.set('readThroughRoundNum', readThroughRoundNum)
+    return recordRequest(`/api/v2/records/${encodeURIComponent(sessionId)}/overview?${q}`)
+  },
+  rounds(sessionId, { afterRoundNum = 0, pageSize = 10, readThroughRoundNum } = {}) {
+    const q = new URLSearchParams({ afterRoundNum, pageSize })
+    if (readThroughRoundNum != null) q.set('readThroughRoundNum', readThroughRoundNum)
+    return recordRequest(`/api/v2/records/${encodeURIComponent(sessionId)}/rounds?${q}`, {},
+      { cacheable: readThroughRoundNum != null, sessionId: Number(sessionId) })
+  },
+  detail(sessionId, roundNum, readThroughRoundNum) {
+    const q = new URLSearchParams()
+    if (readThroughRoundNum != null) q.set('readThroughRoundNum', readThroughRoundNum)
+    return recordRequest(`/api/v2/records/${encodeURIComponent(sessionId)}/rounds/${encodeURIComponent(roundNum)}?${q}`, {},
+      { cacheable: readThroughRoundNum != null, sessionId: Number(sessionId) })
+  },
+  newRounds(sessionId, afterRoundNum, pageSize = 10, readThroughRoundNum) {
+    const q = new URLSearchParams({ afterRoundNum, pageSize })
+    if (readThroughRoundNum != null) q.set('readThroughRoundNum', readThroughRoundNum)
+    return recordRequest(`/api/v2/records/${encodeURIComponent(sessionId)}/rounds/new?${q}`)
+  },
+}
+
+// 4.2 默认启用分页界面；构建时 VITE_RECORDS_API_V2=false 可回退旧接口。
+export const recordsApiV2Enabled = import.meta.env?.VITE_RECORDS_API_V2 !== 'false'
 
 export function pendingReturn() {
   return request('/api/room/pending')

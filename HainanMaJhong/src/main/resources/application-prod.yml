@@ -94,3 +94,6 @@ logging:
 app:
   apk:
     path: ${APP_APK_PATH:}
+
+capacity:
+  external-probes-enabled: ${CAPACITY_EXTERNAL_PROBES_ENABLED:true}

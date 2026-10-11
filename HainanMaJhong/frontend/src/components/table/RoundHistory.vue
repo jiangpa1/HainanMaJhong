@@ -19,7 +19,9 @@
 import { computed, ref, watch } from 'vue'
 import { recordsByRoom } from '../../api/api.js'
 import RecordDetail from '../records/RecordDetail.vue'
+import RecordDetailV2 from '../records/RecordDetailV2.vue'
 import Tile from '../tile/Tile.vue'
+import { useRecordTask } from '../../composables/useRecordTask.js'
 
 const props = defineProps({
   /** 本房间号（房号还没拿到时传空串，按钮置灰） */
@@ -31,12 +33,13 @@ const props = defineProps({
 })
 
 const open = ref(false)
-const loading = ref(false)
+const loadTask = useRecordTask()
+const loading = loadTask.busy
 /** 服务端返回的完整明细（RecordDetailVO） */
 const detail = ref(null)
 /** 拉取失败/尚无数据时置 true，走内存兜底 */
 const fallback = ref(false)
-const error = ref('')
+const error = loadTask.error
 
 const hasSomething = computed(() => {
   if (detail.value && !detail.value.notFound) return true
@@ -45,39 +48,32 @@ const hasSomething = computed(() => {
 
 /** 按钮上的小计数：优先用服务端把数，没有就用内存里的 */
 const count = computed(() => {
+  if (detail.value?._v2) return detail.value.overview.readThroughRoundNum
   if (detail.value && Array.isArray(detail.value.rounds)) return detail.value.rounds.length
   return (props.rounds || []).length
 })
 
-async function load() {
+function load() {
   const code = (props.roomCode || '').trim()
   if (!code) {
     fallback.value = true
     return
   }
-  loading.value = true
-  error.value = ''
-  try {
-    const d = await recordsByRoom(code)
-    detail.value = d
-    // notFound 表示这个房间还没完成的小局
-    fallback.value = !d || d.notFound === true
-  } catch (e) {
-    fallback.value = true
-    error.value = (e && e.message) || '加载失败'
-  } finally {
-    loading.value = false
-  }
+  return loadTask.run({ key: `room:${code}`, read: () => recordsByRoom(code),
+    onSuccess(d) { detail.value = d; fallback.value = !d || d.notFound === true },
+    onFailure() { fallback.value = true },
+  })
 }
 
 /** 打开时拉一次；开着的时候房间号变了（换房）也重拉 */
-watch(open, (v) => {
-  if (v) load()
+watch([open, () => props.roomCode], ([v, code], [, previousCode]) => {
+  if (code !== previousCode) detail.value = null
+  if (v) { detail.value = null; fallback.value = false; load() }
+  else loadTask.cancel()
 })
 
-async function openModal() {
+function openModal() {
   open.value = true
-  await load()
 }
 
 /* ---------------- 内存兜底渲染 ---------------- */
@@ -129,12 +125,17 @@ function howText(r) {
 
           <template v-else-if="!fallback">
             <!-- 与大堂战绩查询的二级界面用的是同一个组件 -->
-            <RecordDetail :detail="detail" />
+            <RecordDetailV2 v-if="detail?._v2" :key="detail.sessionId" :detail="detail"
+              @overview="detail.overview = $event" />
+            <RecordDetail v-else :detail="detail" />
           </template>
 
           <!-- 服务端还没有落库（本把正打着）：退回内存里的简易列表 -->
           <template v-else>
-            <p v-if="error" class="rh__msg rh__msg--warn">{{ error }}，下面是本局已打过的记录。</p>
+            <p v-if="error" class="rh__msg rh__msg--warn">
+              {{ error }}，下面是本局已打过的记录。
+              <button type="button" class="btn btn--sm" @click="loadTask.retry()">重试</button>
+            </p>
             <p v-else-if="rounds.length" class="rh__msg rh__msg--warn">
               本房还没有已结算的小局，下面是本局已打过的记录（打完一把后这里会显示完整明细）。
             </p>

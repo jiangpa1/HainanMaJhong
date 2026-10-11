@@ -110,7 +110,7 @@ class HumanDiscardPromptTest {
         RoomRegistry registry = new RoomRegistry();
 
         Room room = new Room(code, 42L);
-        room.state = State.PLAYING;
+        room.state = State.WAITING;
 
         // 真人坐 mySeat（/room 与 /game 两条连接都在）
         FakeSession roomWs = new FakeSession("room-1");
@@ -136,7 +136,7 @@ class HumanDiscardPromptTest {
         // ---- 依赖：能真就真，碰外部 I/O 的才 mock ----
         RoomService rooms = mock(RoomService.class);
         RoundPersister persister = mock(RoundPersister.class);
-        when(persister.createSession(anyString(), anyLong(), anyList())).thenReturn(-1L);
+        when(persister.createSession(anyString(), anyLong(), anyList())).thenReturn(1L);
 
         GamePushService push = new GamePushServiceImpl();
         RoomSnapshotService snapshots = mock(RoomSnapshotService.class);

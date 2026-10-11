@@ -37,10 +37,21 @@ public class GamePushServiceImpl implements GamePushService {
     private static final Logger log = LoggerFactory.getLogger(GamePushServiceImpl.class);
 
     private final ObjectMapper mapper = new ObjectMapper();
+    private hainanMahjong.monitoring.CapacityMetrics metrics;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setCapacityMetrics(hainanMahjong.monitoring.CapacityMetrics metrics) { this.metrics = metrics; }
 
     /** 向房间内所有真人的牌局连接广播（机器人跳过；连接未打开的跳过）。 */
     @Override
     public void broadcastGame(Room room, Map<String, Object> msg) {
+        if (room.stop || room.state == hainanMahjong.room.State.CLOSED) return;
+        if (metrics != null) {
+            long sequence = metrics.delivery(room, msg);
+            if (sequence > 0) {
+                msg = new LinkedHashMap<>(msg);
+                msg.put("_monitorSeq", sequence);
+            }
+        }
         for (Member m : new ArrayList<>(room.members.values())) {
             if (m == null || m.userId < 0 || m.gameWs == null || !m.gameWs.isOpen()) {
                 continue;
@@ -57,6 +68,7 @@ public class GamePushServiceImpl implements GamePushService {
      */
     @Override
     public void broadcastGameMasked(Room room, Seat owner, Map<String, Object> full, Map<String, Object> masked) {
+        if (room.stop || room.state == hainanMahjong.room.State.CLOSED) return;
         for (Member m : new ArrayList<>(room.members.values())) {
             if (m == null || m.userId < 0 || m.gameWs == null || !m.gameWs.isOpen()) {
                 continue;
@@ -76,15 +88,23 @@ public class GamePushServiceImpl implements GamePushService {
         if (session == null || !session.isOpen()) {
             return;
         }
+        long started = System.nanoTime(), size = 0;
+        String outcome = "closed";
+        if (metrics != null) metrics.sending();
         try {
             String json = mapper.writeValueAsString(msg);
+            size = json.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
             synchronized (session) {
                 if (session.isOpen()) {
                     session.sendMessage(new TextMessage(json));
+                    outcome = "success";
                 }
             }
         } catch (Exception e) {
+            outcome = "error";
             log.warn("发送消息失败：{}", e.getMessage());
+        } finally {
+            if (metrics != null) metrics.sent(started, size, outcome);
         }
     }
 

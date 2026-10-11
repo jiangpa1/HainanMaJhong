@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE svg
+  PUBLIC '-//W3C//DTD SVG 1.0//EN'
+  'http://www.w3.org/TR/2001/REC-SVG-20010904/DTD/svg10.dtd'>
+<svg width="487" height="245" preserveAspectRatio="xMinYMin meet" viewBox="0 0 487 245" xmlns="http://www.w3.org/2000/svg" version="1.0" fill-rule="evenodd" xmlns:xlink="http://www.w3.org/1999/xlink">
+	<title>...</title>
+	<desc>...</desc>
+	<clipPath id="clip">
+		<rect x="0" y="0" width="487" height="245"/>
+	</clipPath>
+	<g id="group" transform="scale(1,-1) translate(0,-245)" style="clip-path: url(#clip)">
+		<g transform="">
+			<g transform="">
+				<g transform="">
+					<g transform="">
+						<path d="M 57,43 L 456,43 Z" style="stroke: rgb(79%,83%,86%); stroke-linecap: butt; stroke-width: 1;"/>
+					</g>
+					<g transform="">
+						<path d="M 57,43 L 57,38 Z" style="stroke: rgb(79%,83%,86%); stroke-linecap: butt; stroke-width: 1;"/>
+						<path d="M 256.5,43 L 256.5,38 Z" style="stroke: rgb(79%,83%,86%); stroke-linecap: butt; stroke-width: 1;"/>
+						<path d="M 456,43 L 456,38 Z" style="stroke: rgb(79%,83%,86%); stroke-linecap: butt; stroke-width: 1;"/>
+					</g>
+					<g transform="">
+						<g transform=" matrix(1,0,0,1,57,38)">
+							<text x="-4.25" y="-8.5" style="font-family: CN; font-size: 8.5px;fill: rgb(0%,0%,0%); stroke:none;" transform="translate(0,-17) scale(1,-1)">10</text>
+						</g>
+						<g transform=" matrix(1,0,0,1,256.5,38)">
+							<text x="-6.375000000000001" y="-8.5" style="font-family: CN; font-size: 8.5px;fill: rgb(0%,0%,0%); stroke:none;" transform="translate(0,-17) scale(1,-1)">100</text>
+						</g>
+						<g transform=" matrix(1,0,0,1,456,38)">
+							<text x="-8.5" y="-8.5" style="font-family: CN; font-size: 8.5px;fill: rgb(0%,0%,0%); stroke:none;" transform="translate(0,-17) scale(1,-1)">1000</text>
+						</g>
+					</g>
+				</g>
+				<g transform="">
+					<g transform="">
+						<path d="M 57,43 L 57,210 Z" style="stroke: rgb(79%,83%,86%); stroke-linecap: butt; stroke-width: 1;"/>
+					</g>
+					<g transform="">
+						<path d="M 57,43 L 52,43 Z" style="stroke: rgb(79%,83%,86%); stroke-linecap: butt; stroke-width: 1;"/>
+						<path d="M 57,98.666667 L 52,98.666667 Z" style="stroke: rgb(79%,83%,86%); stroke-linecap: butt; stroke-width: 1;"/>
+						<path d="M 57,154.333333 L 52,154.333333 Z" style="stroke: rgb(79%,83%,86%); stroke-linecap: butt; stroke-width: 1;"/>
+						<path d="M 57,210 L 52,210 Z" style="stroke: rgb(79%,83%,86%); stroke-linecap: butt; stroke-width: 1;"/>
+					</g>
+					<g transform="">
+						<g transform=" matrix(1,0,0,1,52,43)">
+							<text x="-21.25" y="-3.4000000000000004" style="font-family: CN; font-size: 8.5px;fill: rgb(0%,0%,0%); stroke:none;" transform="translate(0,-6) scale(1,-1)">1,000</text>
+						</g>
+						<g transform=" matrix(1,0,0,1,52,98.666667)">
+							<text x="-25.500000000000004" y="-3.4000000000000004" style="font-family: CN; font-size: 8.5px;fill: rgb(0%,0%,0%); stroke:none;" transform="translate(0,-6) scale(1,-1)">10,000</text>
+						</g>
+						<g transform=" matrix(1,0,0,1,52,154.333333)">
+							<text x="-29.750000000000004" y="-3.4000000000000004" style="font-family: CN; font-size: 8.5px;fill: rgb(0%,0%,0%); stroke:none;" transform="translate(0,-6) scale(1,-1)">100,000</text>
+						</g>
+						<g transform=" matrix(1,0,0,1,52,210)">
+							<text x="-38.25" y="-3.4000000000000004" style="font-family: CN; font-size: 8.5px;fill: rgb(0%,0%,0%); stroke:none;" transform="translate(0,-6) scale(1,-1)">1,000,000</text>
+						</g>
+					</g>
+				</g>
+				<path d="M 57,98.666667 L 456,98.666667 Z" style="stroke: rgb(90%,92%,94%); stroke-linecap: butt; stroke-width: 0.25;"/>
+				<path d="M 57,154.333333 L 456,154.333333 Z" style="stroke: rgb(90%,92%,94%); stroke-linecap: butt; stroke-width: 0.25;"/>
+				<path d="M 57,210 L 456,210 Z" style="stroke: rgb(90%,92%,94%); stroke-linecap: butt; stroke-width: 0.25;"/>
+				<g transform="">
+					<polyline points="57 96.13024, 256.5 150.7769, 456 206.3629" style="stroke: rgb(40%,45%,50%); stroke-linecap: round; stroke-width: 2.4; fill: None; fill-rule: evenodd;"/>
+					<polyline points="57 87.48127, 256.5 87.52347, 456 87.56943" style="stroke: rgb(7%,50%,41%); stroke-linecap: round; stroke-width: 2.4; fill: None; fill-rule: evenodd;"/>
+				</g>
+			</g>
+			<rect x="57" y="230" width="12" height="4" style="stroke: rgb(40%,45%,50%); stroke-linecap: butt; stroke-width: 1; fill: rgb(40%,45%,50%); fill-rule: evenodd;"/>
+			<text x="75" y="228" style="font-family: CN; font-size: 9px;fill: rgb(40%,45%,50%); stroke:none;" transform="translate(0,456) scale(1,-1)">旧版整场详情</text>
+			<rect x="235" y="230" width="12" height="4" style="stroke: rgb(7%,50%,41%); stroke-linecap: butt; stroke-width: 1; fill: rgb(7%,50%,41%); fill-rule: evenodd;"/>
+			<text x="253" y="228" style="font-family: CN; font-size: 9px;fill: rgb(40%,45%,50%); stroke:none;" transform="translate(0,456) scale(1,-1)">新版首屏 总览加10局摘要</text>
+			<text x="57" y="215" style="font-family: CN; font-size: 8px;fill: rgb(40%,45%,50%); stroke:none;" transform="translate(0,430) scale(1,-1)">纵轴 JSON 字节 B  横纵轴均为对数坐标</text>
+			<text x="216.5" y="12" style="font-family: CN; font-size: 9px;fill: rgb(40%,45%,50%); stroke:none;" transform="translate(0,24) scale(1,-1)">会话总小局数</text>
+		</g>
+	</g>
+</svg>

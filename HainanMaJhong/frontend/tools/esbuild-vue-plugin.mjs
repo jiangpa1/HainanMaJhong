@@ -85,16 +85,16 @@ export function vuePlugin() {
 
 /**
  * 拼出最终模块代码。
- *   - `export default {` → `const __sfc_main = {`（只改内联对象这一种，
- *     不碰 `export { X as default }` 这种重导出写法）
+ *   - 默认导出的对象或 Object.assign 表达式绑定到 __sfc_main，
+ *     不碰 `export { X as default }` 这种重导出写法
  *   - 模板代码去掉 export、render 改名，末了挂到 __sfc_main 上再导出
  */
 function assemble(scriptCode, templateCode) {
   let script = scriptCode
 
-  const hadInlineDefault = /^export default \{/m.test(script)
+  const hadInlineDefault = /^export default\s+/m.test(script)
   if (hadInlineDefault) {
-    script = script.replace(/^export default \{/m, 'const __sfc_main = {')
+    script = script.replace(/^export default\s+/m, 'const __sfc_main = ')
   }
 
   const tmpl = templateCode
