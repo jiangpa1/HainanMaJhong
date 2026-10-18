@@ -1,0 +1,16 @@
+﻿file,source,startedAt,tables,players,seconds,recordsVersion,encoding,httpSent,httpFailed,worstHttpP95Ms,pass,stopReason
+24aa618c55f9.json,docs/performance/results-2026-10-11-192-repeat/formal-v2-192/results.json,2026-10-11T09:45:46.967Z,48,192,300.0080657,v2,gzip,36001,29,78.21080000000075,True,
+d9beed62b2e7.json,docs/performance/results-2026-10-11-192-repeat/preflight-v2-2tables/results.json,2026-10-11T09:44:23.752Z,2,8,30.2002196,v2,gzip,151,0,94.66749999999956,True,
+9ddd043280fd.json,docs/performance/results-2026-10-11-192-repeat/smoke-v2/results.json,2026-10-11T09:42:46.504Z,1,4,30.0007735,v2,gzip,75,0,119.1195000000007,False,ws-message-timeout
+6794db41e432.json,docs/performance/results-2026-10-11-retest/legacy-gzip-192/results.json,2026-10-11T08:13:42.935Z,48,192,8.658699799999972,legacy,gzip,1040,83,8000.317600000009,False,http-error-rate-over-5-percent
+830db89bce56.json,docs/performance/results-2026-10-11-retest/legacy-gzip-192-retry/results.json,2026-10-11T08:25:44.398Z,48,192,300.00796290000005,legacy,gzip,36001,10,892.0295000000042,True,
+41959d563f54.json,docs/performance/results-2026-10-11-retest/legacy-gzip-64-recovery/results.json,2026-10-11T08:20:58.635Z,16,64,60.00038889999999,legacy,gzip,2400,0,1090.169299999994,True,
+aae2f0df3439.json,docs/performance/results-2026-10-11-retest/legacy-identity-192/results.json,2026-10-11T07:53:58.935Z,48,192,,legacy,identity,0,0,,False,monitor-unavailable-three-samples
+c9048170b781.json,docs/performance/results-2026-10-11-retest/legacy-identity-192-retry/results.json,2026-10-11T08:02:18.155Z,48,192,300.0000701,legacy,identity,36001,15,1179.3133999999845,True,
+e49042a18f68.json,docs/performance/results-2026-10-11-retest/smoke-1-table/results.json,2026-10-11T07:48:43.760Z,1,4,,legacy,gzip,0,0,,False,monitor-unavailable-three-samples
+e1c9ad57f0d5.json,docs/performance/results-2026-10-11-retest/smoke-1-table-retry/results.json,2026-10-11T07:49:44.999Z,1,4,30.400904099999995,legacy,gzip,76,0,1400.7256000000016,True,
+366f8bf1ad52.json,docs/performance/results-2026-10-11-retest/smoke-v2-1-table/results.json,2026-10-11T07:52:00.875Z,1,4,30.000019700000003,v2,gzip,76,0,962.2116000000005,True,
+d5aabbf7e82f.json,docs/performance/results-2026-10-11-retest/v2-gzip-192/results.json,2026-10-11T08:37:38.341Z,,,,v2,gzip,,,,False,homepage-baseline-failed
+8ac47200c155.json,docs/performance/results-2026-10-11-retest/v2-gzip-192-retry/results.json,2026-10-11T08:39:50.096Z,48,192,300.0078038,v2,gzip,36001,8,1052.8348000000115,False,stage-acceptance-failed
+21d093aabb55.json,output/work/aborted-reconnect-run/results.json,2026-10-09T07:25:24.334Z,1,4,180.00367980000001,legacy,identity,360,1,,False,
+11dcb7526196.json,output/work/pilot-results/results.json,2026-10-09T07:21:48.814Z,1,4,44.51499650000001,legacy,identity,90,6,1268.613599999997,False,http-error-rate-over-5-percent

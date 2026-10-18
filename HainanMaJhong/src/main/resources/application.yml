@@ -67,7 +67,51 @@ management:
         jvm.gc.pause: true
         hikaricp.connections.acquire: true
 
+# Initial per-process budgets for the current 2-vCPU deployment, not measured capacity claims.
+# Restart to apply changes; disabling this switch restores prior HTTP admission behavior.
+traffic-protection:
+  enabled: ${TRAFFIC_PROTECTION_ENABLED:true}
+  max-keys: ${TRAFFIC_MAX_KEYS:10000}
+  idle-seconds: 600
+  busy-retry-seconds: 2
+  trusted-proxies: ${TRAFFIC_TRUSTED_PROXIES:127.0.0.1,::1}
+  login:
+    concurrency: ${LOGIN_MAX_CONCURRENT:1}
+    global: { per-second: '${LOGIN_RPS:3}', burst: '${LOGIN_BURST:3}' }
+    principal: { per-second: '${LOGIN_ACCOUNT_RPS:0.1}', burst: '${LOGIN_ACCOUNT_BURST:3}' }
+    ip: { per-second: '${LOGIN_IP_RPS:1}', burst: '${LOGIN_IP_BURST:10}' }
+  records:
+    concurrency: ${RECORDS_MAX_CONCURRENT:48}
+    global: { per-second: '${RECORDS_RPS:800}', burst: '${RECORDS_BURST:100}' }
+    principal: { per-second: '${RECORDS_USER_RPS:8}', burst: '${RECORDS_USER_BURST:16}' }
+    ip: { per-second: '${RECORDS_IP_RPS:480}', burst: '${RECORDS_IP_BURST:60}' }
+  legacy:
+    concurrency: ${LEGACY_RECORDS_MAX_CONCURRENT:8}
+    global: { per-second: '${LEGACY_RECORDS_RPS:20}', burst: '${LEGACY_RECORDS_BURST:4}' }
+    principal: { per-second: '${LEGACY_RECORDS_USER_RPS:0.5}', burst: '${LEGACY_RECORDS_USER_BURST:2}' }
+    ip: { per-second: '${LEGACY_RECORDS_IP_RPS:12}', burst: '${LEGACY_RECORDS_IP_BURST:3}' }
+
+game:
+  push:
+    default-mode: ${PUSH_DEFAULT:full}
+
+# Writes remain enabled when the worker is paused; pending jobs survive process restarts.
+room-close-outbox:
+  worker-enabled: ${ROOM_CLOSE_OUTBOX_WORKER_ENABLED:true}
+
 capacity:
   sample-ms: 10000
   external-probes-enabled: ${CAPACITY_EXTERNAL_PROBES_ENABLED:false}
   network-interface: ${CAPACITY_NETWORK_INTERFACE:eth0}
+
+# P2: dual-write first; indexed reads require a successful migration promote operation.
+records:
+  p2:
+    write-enabled: ${RECORDS_P2_WRITE_ENABLED:true}
+    read-enabled: ${RECORDS_P2_READ_ENABLED:false}
+    cache:
+      enabled: ${RECORDS_P2_CACHE_ENABLED:true}
+      max-entries: 512
+      max-item-bytes: 65536
+      max-bytes: 8388608
+      ttl-ms: 60000

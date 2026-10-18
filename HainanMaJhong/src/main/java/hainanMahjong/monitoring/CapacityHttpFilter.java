@@ -29,12 +29,14 @@ public class CapacityHttpFilter extends OncePerRequestFilter {
             String route = matched == null ? "unmatched" : matched.toString();
             Matcher code = CODE.matcher(counted.prefix.toString(java.nio.charset.StandardCharsets.UTF_8));
             boolean businessError = code.find() && !"200".equals(code.group(1));
-            String outcome = exception || response.getStatus() >= 500 ? "server_error" : businessError || response.getStatus() >= 400 ? "business_error" : "success";
+            String outcome = response.getStatus() == 429 ? "rate_limited"
+                    : exception || response.getStatus() >= 500 ? "server_error"
+                    : businessError || response.getStatus() >= 400 ? "business_error" : "success";
             String[] tags = {"route", route, "method", request.getMethod(), "outcome", outcome};
             metrics.time("mahjong.http.response", duration, tags);
             metrics.time("mahjong.http.first_byte", counted.firstWrite == 0 ? duration : counted.firstWrite - start, tags);
             metrics.bytes("mahjong.http.response.body", counted.bytes, tags);
-            if (!"success".equals(outcome) || duration > 500_000_000L)
+            if (!"rate_limited".equals(outcome) && (!"success".equals(outcome) || duration > 500_000_000L))
                 log.info("capacity requestId={} route={} method={} outcome={} durationMs={} bytes={}",
                     requestId, route, request.getMethod(), outcome, duration / 1_000_000, counted.bytes);
         }

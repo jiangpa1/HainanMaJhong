@@ -8,12 +8,18 @@
  *
  * 只删 assets/ 下的文件，不动 assets/ 目录本身，也不碰 static/ 的其它内容。
  */
-import { existsSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, rmSync, realpathSync, lstatSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve, relative, isAbsolute } from 'node:path'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const assetsDir = join(here, '..', '..', 'src', 'main', 'resources', 'static', 'assets')
+const projectDir = realpathSync(resolve(here, '..', '..'))
+function assertInsideProject(p) {
+  const rel = relative(projectDir, realpathSync(p))
+  if (!rel || rel === '..' || rel.startsWith('..' + (process.platform === 'win32' ? '\\' : '/')) || isAbsolute(rel))
+    throw new Error('Refusing to clean a path outside the project: ' + p)
+}
 
 if (!existsSync(assetsDir)) {
   console.log('[clean] assets/ 不存在，跳过')
@@ -21,14 +27,14 @@ if (!existsSync(assetsDir)) {
 }
 
 let removed = 0
+assertInsideProject(assetsDir)
+if (lstatSync(assetsDir).isSymbolicLink()) throw new Error('Refusing to clean linked assets directory')
 for (const name of readdirSync(assetsDir)) {
   const p = join(assetsDir, name)
-  try {
-    rmSync(p, { recursive: statSync(p).isDirectory(), force: true })
+    assertInsideProject(p)
+    if (lstatSync(p).isSymbolicLink()) throw new Error('Refusing to clean linked asset: ' + p)
+    rmSync(p, { recursive: lstatSync(p).isDirectory(), force: true })
     removed++
-  } catch (e) {
-    console.warn('[clean] 删除失败 ' + name + ': ' + e.message)
-  }
 }
 
 // 顺带清掉旧入口的残留（index.html 会被 vite 覆盖，这里只是保证一致）

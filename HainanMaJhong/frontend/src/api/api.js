@@ -10,7 +10,7 @@
  *   4. 端点与字段集中在一处 —— 改后端接口只改这个文件
  *
  * 后端约定（见 GlobalExceptionHandler / JwtInterceptor）：
- *   HTTP 状态码恒为 200，业务码在响应体的 code 里：
+ *   通常 HTTP 200，业务码在响应体的 code 里；入口限流返回真实 HTTP 429：
  *     200 成功 / 400 参数 / 401 未登录 / 403 无权 / 404 不存在 / 500 服务端错误
  *
  * 注意：WebSocket 握手是例外，它返回真实的 401（见 socket.js 的说明）。
@@ -35,6 +35,36 @@ const TTL_KEY = 'tokenTtl'
  */
 const USE_RATIO = 0.8
 let refreshPromise = null
+const admissionCooldowns = new Map()
+
+function admissionGroup(url) {
+  const path = String(url).split('?')[0]
+  if (path === '/api/login') return 'login'
+  if (/^\/api\/(?:v2\/)?records(?:\/|$)/.test(path)) return 'records'
+  return null
+}
+
+function rateLimitError(message, retryAfterMs) {
+  return Object.assign(new Error(message || '当前请求较多，请稍后重试'), {
+    code: 429, retryAfterMs: Math.max(0, retryAfterMs),
+  })
+}
+
+function checkAdmissionCooldown(url) {
+  const group = admissionGroup(url)
+  const left = (admissionCooldowns.get(group) || 0) - Date.now()
+  if (left > 0) throw rateLimitError(`请求较多，请在 ${Math.ceil(left / 1000)} 秒后重试`, left)
+  if (group) admissionCooldowns.delete(group)
+}
+
+function retryAfterMs(response, body) {
+  const value = response.headers.get('Retry-After')
+  let wait = value && /^\d+(?:\.\d+)?$/.test(value) ? Number(value) * 1000 : Date.parse(value || '') - Date.now()
+  if (!Number.isFinite(wait) || wait < 0) wait = Number(body?.data?.retryAfterSeconds) * 1000
+  if (!Number.isFinite(wait) || wait < 0) wait = 2000
+  // Independent clients spread their retries after, rather than before, the server's deadline.
+  return Math.min(wait, 86400000) + 250 + Math.random() * 750
+}
 
 /* ---------------- token ---------------- */
 
@@ -116,6 +146,7 @@ async function doRefresh() {
  * @returns {Promise<any>}
  */
 export async function request(url, opts = {}) {
+  checkAdmissionCooldown(url)
   if (!opts.skipAuth && needsRefresh() && getRefreshToken()) {
     try {
       await refreshOnce()
@@ -154,6 +185,7 @@ function unwrap(opts) {
     if (body.code !== 200) {
       const err = new Error(body.message || `请求失败（${body.code}）`)
       err.code = body.code
+      if (body.code === 429) err.retryAfterMs = body.retryAfterMs || 2000
       throw err
     }
     return opts.raw ? body : body.data
@@ -162,6 +194,7 @@ function unwrap(opts) {
 
 /** 只发一次，返回响应体；不抛业务错误，交给调用方判断（401 需要重试）。 */
 async function fetchOnce(url, opts) {
+  checkAdmissionCooldown(url)
   const headers = { ...(opts.headers || {}) }
   if (opts.body !== undefined) headers['Content-Type'] = 'application/json;charset=UTF-8'
   if (!opts.skipAuth) {
@@ -178,6 +211,14 @@ async function fetchOnce(url, opts) {
     })
   } catch (e) {
     throw new Error('网络异常，请检查连接')
+  }
+
+  if (res.status === 429) {
+    const body = await res.json().catch(() => null)
+    const wait = retryAfterMs(res, body)
+    const group = admissionGroup(url)
+    if (group) admissionCooldowns.set(group, Math.max(admissionCooldowns.get(group) || 0, Date.now() + wait))
+    return { code: 429, message: body?.message || `请求较多，请在 ${Math.ceil(wait / 1000)} 秒后重试`, retryAfterMs: wait }
   }
 
   let body = null

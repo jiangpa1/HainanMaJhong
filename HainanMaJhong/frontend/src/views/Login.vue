@@ -12,7 +12,7 @@
  *   存储键单独用一个（hnLoginRemember），api.js 的 clearAuth() 是按具体键删的，
  *   所以【退出登录不会把记住的用户名一起清掉】。
  */
-import { ref, watch } from 'vue'
+import { ref, watch, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { login, register, isLoggedIn, consumeLoginNotice } from '../api/api.js'
 import { enterGameMode } from '../composables/useLandscapeScale.js'
@@ -25,6 +25,21 @@ const password = ref('')
 const nickname = ref('')
 const busy = ref(false)
 const error = ref('')
+const retrySeconds = ref(0)
+let cooldownTimer = null
+
+function startCooldown(milliseconds) {
+  if (cooldownTimer != null) clearInterval(cooldownTimer)
+  const deadline = Date.now() + Math.max(1000, milliseconds || 2000)
+  const update = () => {
+    retrySeconds.value = Math.max(0, Math.ceil((deadline - Date.now()) / 1000))
+    if (retrySeconds.value === 0) { clearInterval(cooldownTimer); cooldownTimer = null }
+  }
+  cooldownTimer = setInterval(update, 1000)
+  update()
+}
+
+onUnmounted(() => { if (cooldownTimer != null) clearInterval(cooldownTimer) })
 /** 勾上才把密码也存起来；用户名无论如何都记 */
 const rememberPassword = ref(false)
 
@@ -96,6 +111,7 @@ if (isLoggedIn()) {
 }
 
 async function submit() {
+  if (busy.value || retrySeconds.value > 0) return
   error.value = ''
   if (!username.value || !password.value) {
     error.value = '请填写用户名和密码'
@@ -110,6 +126,8 @@ async function submit() {
       await login(username.value.trim(), password.value)
     } else {
       await register(username.value.trim(), password.value, nickname.value.trim() || undefined)
+      // If subsequent login is throttled, the next click must not register the account again.
+      mode.value = 'login'
       // 注册成功后直接登录，省一步
       await login(username.value.trim(), password.value)
     }
@@ -118,6 +136,7 @@ async function submit() {
     router.replace('/lobby')
   } catch (e) {
     error.value = e && e.message ? e.message : '操作失败，请重试'
+    if (e?.code === 429) startCooldown(e.retryAfterMs)
   } finally {
     busy.value = false
   }
@@ -172,8 +191,8 @@ function toggleMode() {
 
           <p v-if="error" class="login__error">{{ error }}</p>
 
-          <button class="btn btn--primary login__submit" type="submit" :disabled="busy">
-            {{ busy ? '处理中…' : mode === 'login' ? '登录' : '注册并登录' }}
+          <button class="btn btn--primary login__submit" type="submit" :disabled="busy || retrySeconds > 0">
+            {{ retrySeconds > 0 ? `${retrySeconds} 秒后重试` : busy ? '处理中…' : mode === 'login' ? '登录' : '注册并登录' }}
           </button>
         </form>
 

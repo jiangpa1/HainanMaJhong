@@ -101,12 +101,17 @@ public class PromptSupport {
             }
         }
         try {
+            listener.onIdle();
             body.accept(reply);
         } catch (Throwable ex) {
             force.run();
         }
         try {
-            latch.await();
+            while (!latch.await(1, TimeUnit.SECONDS)) {
+                // Snapshot/resync work stays on the owning engine thread, never the timer
+                // or WS thread reading mutable players concurrently with an action.
+                listener.onIdle();
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }

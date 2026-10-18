@@ -24,6 +24,8 @@ public class CapacityMetrics {
 
     public CapacityMetrics(MeterRegistry meters, RoomRegistry rooms) {
         this.meters = meters; this.rooms = rooms;
+        // Register at zero so the first later failure is visible as a counter increase.
+        meters.counter("mahjong.room.session.close.failures");
         Gauge.builder("mahjong.ws.send.pending", pendingSends, AtomicLong::get).register(meters);
         Gauge.builder("mahjong.ws.delivery.pending", deliveries, Map::size).register(meters);
         for (String endpoint : List.of("room", "game")) {
@@ -37,6 +39,17 @@ public class CapacityMetrics {
         }).set(value);
     }
     public void count(String name, String... tags) { meters.counter(name, tags).increment(); }
+    /**
+     * 懒注册一个可被 Prometheus 采集的 AtomicLong 并返回引用。
+     *
+     * <p>用于"每个消息类型一个累加器"这类低基数、高频累加的场景：注册只发生一次，
+     * 之后热路径上只有 CHM 查表 + 原子加法，不在每次调用时创建 builder/查注册表。</p>
+     */
+    public AtomicLong gaugeRef(String name, String... tags) {
+        AtomicLong number = new AtomicLong();
+        Gauge.builder(name, number, AtomicLong::get).tags(tags).register(meters);
+        return number;
+    }
     public void time(String name, long nanos, String... tags) {
         io.micrometer.core.instrument.Timer.builder(name).tags(tags).publishPercentileHistogram()
                 .minimumExpectedValue(Duration.ofMillis(1)).maximumExpectedValue(Duration.ofSeconds(30))
@@ -56,6 +69,17 @@ public class CapacityMetrics {
     public void sent(long started, long size, String outcome) {
         pendingSends.decrementAndGet(); time("mahjong.ws.send", System.nanoTime() - started, "outcome", outcome);
         bytes("mahjong.ws.message", size, "outcome", outcome);
+    }
+    /**
+     * 一次 JSON 序列化的成本。
+     *
+     * <p>2026-10-15 起公共广播改为"编码一次、多连接复用"，因此
+     * {@code mahjong.ws.send} 不再包含序列化时间——序列化时间单独记在这里，
+     * 两者相加才等于改造前的 {@code mahjong.ws.send}。</p>
+     */
+    public void serialized(long nanos, long size) {
+        time("mahjong.ws.serialize", nanos);
+        bytes("mahjong.ws.serialize.size", size);
     }
     /** 只跟踪四名在线真人的关键广播；确认往返是送达延迟的上界，不能称单向延迟。 */
     public synchronized long delivery(Room room, Map<String, Object> message) {

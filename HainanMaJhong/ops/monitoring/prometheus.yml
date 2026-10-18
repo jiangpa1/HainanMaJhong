@@ -3,9 +3,16 @@ global:
   evaluation_interval: 10s
 rule_files:
   - capacity-alerts.yml
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['127.0.0.1:9093']
 scrape_configs:
   - job_name: hainan-mahjong
     metrics_path: /actuator/prometheus
     scrape_timeout: 5s
     static_configs:
       - targets: ['127.0.0.1:9091']
+  - job_name: alertmanager
+    static_configs:
+      - targets: ['127.0.0.1:9093']

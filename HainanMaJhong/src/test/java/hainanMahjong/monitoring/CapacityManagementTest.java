@@ -17,10 +17,12 @@ import static org.junit.jupiter.api.Assertions.*;
         "spring.datasource.url=jdbc:mysql://127.0.0.1:1/test", "spring.datasource.username=test", "spring.datasource.password=test",
         "spring.datasource.hikari.initialization-fail-timeout=-1", "spring.datasource.hikari.minimum-idle=0",
         "spring.redis.host=127.0.0.1", "spring.redis.port=1", "jwt.secret=capacity-test-only-secret-32-characters-long",
-        "jwt.access-expiration=30m", "jwt.refresh-expiration=7d", "jwt.issuer=test"})
+        "jwt.access-expiration=30m", "jwt.refresh-expiration=7d", "jwt.issuer=test",
+        "room-close-outbox.worker-enabled=false"})
 @org.springframework.boot.test.autoconfigure.actuate.metrics.AutoConfigureMetrics
 class CapacityManagementTest {
     @MockBean SchemaInitializer schema;
+    @MockBean hainanMahjong.service.impl.RoomCloseOutbox outbox;
     @Autowired TestRestTemplate http;
     @LocalServerPort int appPort;
     @LocalManagementPort int managementPort;

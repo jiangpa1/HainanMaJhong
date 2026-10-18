@@ -1,0 +1,7 @@
+{
+  "baseUrl": "http://127.0.0.1:8080", "accountsFile": "private/accounts.json", "outputDirectory": "runs/smoke-001",
+  "tables": [1], "seconds": 30, "encoding": "gzip", "recordsVersion": "v2", "rpsPerTable": 2.5,
+  "acceptanceProfile": "p2", "allowRegistration": false,
+  "formalReadRetries": 0, "preparationReadRetries": 4,
+  "roomBatchSize": 4, "roomBatchDelayMs": 0, "rateSteps": []
+}

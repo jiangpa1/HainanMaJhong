@@ -1,0 +1,36 @@
+{
+  "kind": "manually-reviewed-report-excerpts",
+  "originalAcceptancePreserved": true,
+  "files": [
+    {
+      "path": "docs/performance/public/key-results.csv",
+      "bytes": 1662,
+      "sha256": "e747161ce9be5b98d2f643be50a26381dec5fa6795d6591c2117f398140755a8"
+    },
+    {
+      "path": "HainanMaJhong/docs/线上压测对比_2026-10-11.md",
+      "bytes": 9397,
+      "sha256": "c74c11fb9bb9a52598ab9f4933d5c8b150f0cae016b2d6bd1e59d076b9b241f7"
+    },
+    {
+      "path": "HainanMaJhong/docs/线上压测复测_2026-10-12.md",
+      "bytes": 43808,
+      "sha256": "acf555d2437785105e9f778b289162cf8403dc48668b2411037591cce754dae6"
+    },
+    {
+      "path": "HainanMaJhong/docs/热点归属_2026-10-15.md",
+      "bytes": 7844,
+      "sha256": "05e007e10bb72ba8e1d48c18348e713d20d219e800ee4406178bd9a3a2a778ee"
+    },
+    {
+      "path": "HainanMaJhong/docs/Phase1测试报告_2026-10-15.md",
+      "bytes": 22417,
+      "sha256": "b79a1b3e19e45d15d750ba09e8eb483d0d31fe8e54a0e98ed800602574ab7e80"
+    },
+    {
+      "path": "HainanMaJhong/docs/准入保护验证_2026-10-15.md",
+      "bytes": 7927,
+      "sha256": "61093f1cb8baef0cc9c402d08e9e501df5be41ddbbb467d6111cfbb19af8c83e"
+    }
+  ]
+}

@@ -484,6 +484,7 @@ public class RoomManager {
     }
 
     private int drawOne(Player p) {
+        listener.onIdle();
         while (true) {
             int t = takeFromWall();
             if (t < 0) return -1;
@@ -503,6 +504,7 @@ public class RoomManager {
 
     private int discard(Player p) {
         int tile = requestDiscard(p);
+        listener.onIdle();
         eatBan = null; // 吃后禁打只作用于这一手，出牌后即解除
         p.remove(tile, 1);
         discardPile.add(tile);

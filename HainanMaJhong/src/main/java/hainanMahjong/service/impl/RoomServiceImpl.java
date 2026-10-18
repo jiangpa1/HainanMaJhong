@@ -53,6 +53,11 @@ public class RoomServiceImpl implements RoomService {
      * <p>只依赖两个 Mapper，不会和本类形成循环依赖。</p>
      */
     private final RoundPersister roundPersist;
+    private RoomCloseOutbox closeOutbox;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setCloseOutbox(RoomCloseOutbox closeOutbox) { this.closeOutbox = closeOutbox; }
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private hainanMahjong.monitoring.CapacityMetrics metrics;
     private final ObjectMapper mapper = new ObjectMapper();
     private final Random random = new Random();
 
@@ -261,8 +266,6 @@ public class RoomServiceImpl implements RoomService {
             room.state = State.CLOSED;
             room.stop = true;
             room.resumeSeed = null;
-            // 标记关闭与删除快照原子完成；失败显式记录并有限重试。
-            retryClose(room);
             /*
              * 收口：房间一旦销毁，就把这一场的结束时间落库。
              *
@@ -273,11 +276,31 @@ public class RoomServiceImpl implements RoomService {
              * BETWEEN + 广播 match_finish，不经过这里），所以不会把"再来一轮"的场次误关掉。
              */
             if (room.sessionId > 0) {
-                try {
-                    roundPersist.disbandSession(room.sessionId);
-                } catch (Exception e) {
-                    log.warn("房间 {} 结束时写 end_time 失败：{}", room.code, e.getMessage());
+                boolean committed = false;
+                for (int attempt = 1; attempt <= 3; attempt++) {
+                    try {
+                        if (closeOutbox != null)
+                            roundPersist.closeWithOutbox(room.sessionId, room.code, room.generation);
+                        else roundPersist.disbandSession(room.sessionId);
+                        committed = true;
+                        break;
+                    } catch (Exception e) {
+                        log.warn("结束场次失败 room={} sessionId={} generation={} attempt={}",
+                                room.code, room.sessionId, room.generation, attempt, e);
+                    }
                 }
+                if (!committed) {
+                    if (metrics != null) metrics.count("mahjong.room.session.close.failures");
+                    // Continue in-memory cleanup; never leave live threads just because the DB is down.
+                    log.error("场次结束未持久化，需人工核对 room={} sessionId={} generation={}",
+                            room.code, room.sessionId, room.generation);
+                }
+            }
+            // SQL close + durable event first; Redis side effect second. Failed Redis cleanup
+            // survives restarts via outbox. DB outage before commit remains an explicit gap.
+            if (retryClose(room) && room.sessionId > 0 && closeOutbox != null) {
+                try { closeOutbox.complete(room.sessionId, room.generation); }
+                catch (Exception e) { log.warn("Outbox immediate acknowledgement deferred session={}", room.sessionId); }
             }
             RoomManager active = room.active;
             if (active != null) {
@@ -301,18 +324,19 @@ public class RoomServiceImpl implements RoomService {
         }
     }
 
-    private void retryClose(Room room) {
+    private boolean retryClose(Room room) {
         for (int attempt = 1; attempt <= 3; attempt++) {
             try {
                 if (!redis.closeRoom(room.code, room.generation)) {
                     log.warn("关闭快照被拒绝（房间码已属于新一代）code={} generation={}", room.code, room.generation);
                 }
-                return;
+                return true;
             } catch (Exception e) {
                 log.warn("关闭快照失败 code={} generation={} attempt={}", room.code, room.generation, attempt, e);
             }
         }
         log.error("房间 {} 关闭保护未写入，需运维重试核对", room.code);
+        return false;
     }
 
     // ==================== 从 Redis 重建 ====================

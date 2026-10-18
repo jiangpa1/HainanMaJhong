@@ -29,6 +29,7 @@ import hainanMahjong.service.RoomSnapshotService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import hainanMahjong.websocket.GamePushProtocol;
 import org.springframework.web.socket.WebSocketSession;
 
 import java.util.ArrayList;
@@ -69,6 +70,7 @@ import static hainanMahjong.room.RoomConfig.MAX_MEMBERS;
 public class GameEngineServiceImpl implements GameEngineService {
 
     private static final Logger log = LoggerFactory.getLogger(GameEngineServiceImpl.class);
+    private static final org.slf4j.Logger DIAG = org.slf4j.LoggerFactory.getLogger("hainanMahjong.diag");
 
     private final RoundPersister roundPersist;
     private final GamePushService push;
@@ -77,6 +79,32 @@ public class GameEngineServiceImpl implements GameEngineService {
     private final RoomService rooms;
     private final ObjectMapper mapper = new ObjectMapper();
     private final Random random = new Random();
+    @org.springframework.beans.factory.annotation.Autowired
+    private hainanMahjong.monitoring.CapacityMetrics pushMetrics;
+    private final java.util.concurrent.ConcurrentMap<RoomManager, RoomListener> pushListeners =
+            new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.ScheduledExecutorService pushFlusher =
+            java.util.concurrent.Executors.newSingleThreadScheduledExecutor(task -> {
+                Thread thread = new Thread(task, "mahjong-push-flush");
+                thread.setDaemon(true);
+                return thread;
+            });
+
+    @javax.annotation.PostConstruct
+    public void startPushFlusher() {
+        pushFlusher.scheduleWithFixedDelay(() -> {
+            for (RoomListener listener : pushListeners.values()) {
+                try { listener.flushIfDue(); }
+                catch (Exception e) { log.warn("推送兜底发送失败：{}", e.getMessage()); }
+            }
+        }, 50, 50, java.util.concurrent.TimeUnit.MILLISECONDS);
+    }
+
+    @javax.annotation.PreDestroy
+    public void stopPushFlusher() {
+        pushFlusher.shutdownNow();
+        pushListeners.clear();
+    }
 
     public GameEngineServiceImpl(RoundPersister roundPersist,
                                  GamePushService push,
@@ -88,6 +116,16 @@ public class GameEngineServiceImpl implements GameEngineService {
         this.snapshots = snapshots;
         this.registry = registry;
         this.rooms = rooms;
+    }
+
+    /** Lifecycle/settlement messages bypass deferral, after draining prior action frames. */
+    private void broadcastBoundary(Room room, Map<String, Object> message) {
+        synchronized (room) {
+            RoomManager active = room.active;
+            RoomListener listener = active == null ? null : pushListeners.get(active);
+            if (listener != null) listener.flushEvent();
+            push.broadcastGame(room, message);
+        }
     }
 
     // ==================== 入口 ====================
@@ -220,7 +258,7 @@ public class GameEngineServiceImpl implements GameEngineService {
         match.put("type", "match");
         match.put("total", -1);
         match.put("continued", true); // 标记这是"同一房间的又一轮"，前端据此保留局内战绩
-        push.broadcastGame(room, match);
+        broadcastBoundary(room, match);
 
         startEngine(room, seed);
     }
@@ -344,7 +382,8 @@ public class GameEngineServiceImpl implements GameEngineService {
                 hs.put("windName", DealerFlow.windName(flow.windIdx()));
                 hs.put("bottom", flow.bottom);
                 hs.put("coins", push.coinView(room));
-                push.broadcastGame(room, hs);
+                DIAG.info("开新一手：room={} hand={} coinSum={}", room.code, hand, push.coinView(room).values().stream().mapToInt(Integer::intValue).sum());
+                broadcastBoundary(room, hs);
 
                 Map<Seat, PlayerController> controllers = new EnumMap<>(Seat.class);
                 for (Seat s : Seat.values()) {
@@ -362,8 +401,12 @@ public class GameEngineServiceImpl implements GameEngineService {
                 RoomManager rm = new RoomManager(config, controllers, listener);
                 listener.setRoom(rm);
                 synchronized (room) {
-                    if (room.stop || room.state != State.PLAYING) { rm.cancel(); return; }
+                    if (room.stop || room.state != State.PLAYING) {
+                        DIAG.info("对局线程退出（开手前）：room={} hand={} stop={} state={}", room.code, hand, room.stop, room.state);
+                        rm.cancel(); return;
+                    }
                     room.active = rm;
+                    pushListeners.put(rm, listener);
                 }
                 final int fHand = hand;
                 rm.setCheckpoint(snap -> {
@@ -374,15 +417,23 @@ public class GameEngineServiceImpl implements GameEngineService {
                     }
                     snapshots.save(room, snap);
                 });
-                if (resumeNext) {
-                    rm.resume(seed.resume);
-                    resumeNext = false;
-                } else {
-                    rm.start();
+                try {
+                    if (resumeNext) {
+                        rm.resume(seed.resume);
+                        resumeNext = false;
+                    } else {
+                        rm.start();
+                    }
+                } finally {
+                    // Drain before detaching active: final action frames cannot depend
+                    // on another prompt or another hand ever being started.
+                    try { listener.flushEvent(); }
+                    finally { pushListeners.remove(rm, listener); }
                 }
                 room.active = null;
                 room.currentSnap = null;
                 if (room.stop || room.state != State.PLAYING) {
+                    DIAG.info("对局线程退出（手间 break）：room={} hand={} stop={} state={}", room.code, hand, room.stop, room.state);
                     break;
                 }
                 RoundResult r = rm.getResult();
@@ -437,14 +488,16 @@ public class GameEngineServiceImpl implements GameEngineService {
                     noteView.put(s.name(), ns == null ? new ArrayList<>() : new ArrayList<>(ns));
                 }
                 cu.put("notes", noteView);
-                push.broadcastGame(room, cu);
+                broadcastBoundary(room, cu);
 
                 snapshots.save(room, null);
                 // 胡牌大字+音效播放完再开下一把：非流局留足时间，流局稍短
+                DIAG.info("结算完成：room={} hand={} 下一手即将开始", room.code, hand);
                 sleepQuiet(room, r.isDraw ? DRAW_PAUSE_MS : HAND_END_MS);
             }
 
             if (room.stop || room.state != State.PLAYING) {
+                DIAG.info("对局线程退出（一轮结束后）：room={} stop={} state={}", room.code, room.stop, room.state);
                 return;
             }
             boolean anyOffline = false;
@@ -461,11 +514,15 @@ public class GameEngineServiceImpl implements GameEngineService {
             }
             // 一轮打满四风结束：不结束 session/不清金币——房主可“再来一轮”，战绩与金币延续
             synchronized (room) {
-                if (room.stop || room.state != State.PLAYING) return;
+                if (room.stop || room.state != State.PLAYING) {
+                    DIAG.info("对局线程退出（置 BETWEEN 前）：room={} stop={} state={}", room.code, room.stop, room.state);
+                    return;
+                }
                 room.state = State.BETWEEN;
             }
             snapshots.save(room, null);
             broadcastFinish(room, false, null);
+            DIAG.info("一轮结束（已置 BETWEEN 并广播 match_finish）：room={}", room.code);
         } catch (Throwable ex) {
             log.warn("对局线程异常：{}", ex.getMessage());
             rooms.disband(room, "对局异常终止");
@@ -604,20 +661,23 @@ public class GameEngineServiceImpl implements GameEngineService {
      * 不希望它成为对外契约的一部分。</p>
      */
     public void pushSeatState(WebSocketSession session, Room room, Seat seat) {
-        RoomManager rm = room.active;
-        if (rm == null) {
-            return;
-        }
+        // The WS thread must not traverse the engine's mutable player collections.
+        session.getAttributes().put(GamePushProtocol.RESYNC, "reconnect");
+    }
+
+    /** Only called by the owning engine thread, at a completed event/decision boundary. */
+    private void sendSeatState(WebSocketSession session, Room room, Seat seat, RoomManager rm,
+                               String turnSeat, long timeoutMs, Map<String, List<Integer>> visibleDiscards) {
         Map<String, List<Integer>> discards = new HashMap<>();
         Map<String, List<Map<String, Object>>> melds = new HashMap<>();
         Map<String, List<Integer>> flowers = new HashMap<>();
         for (Seat s : Seat.values()) {
-            discards.put(s.name(), new ArrayList<>(rm.getPlayerDiscards(s)));
+            discards.put(s.name(), new ArrayList<>(visibleDiscards.get(s.name())));
             List<Map<String, Object>> ml = new ArrayList<>();
             Player p = rm.getPlayer(s);
             if (p != null) {
                 for (Meld meld : p.melds) {
-                    ml.add(push.serializeMeld(meld));
+                    ml.add(push.serializeMeld(meld, meld.type() == Meld.Type.AN_GANG && s != seat));
                 }
                 flowers.put(s.name(), new ArrayList<>(p.flowers));
             } else {
@@ -630,6 +690,8 @@ public class GameEngineServiceImpl implements GameEngineService {
         board.put("discards", discards);
         board.put("melds", melds);
         board.put("flowers", flowers);
+        board.put("nextSeat", turnSeat);
+        board.put("timeoutMs", timeoutMs);
         push.sendJson(session, board);
 
         Map<String, Integer> counts = new HashMap<>();
@@ -640,6 +702,7 @@ public class GameEngineServiceImpl implements GameEngineService {
         Map<String, Object> cm = new HashMap<>();
         cm.put("type", "counts");
         cm.put("counts", counts);
+        cm.put("wall", rm.deckSize());
         push.sendJson(session, cm);
 
         Player me = rm.getPlayer(seat);
@@ -653,6 +716,7 @@ public class GameEngineServiceImpl implements GameEngineService {
             h.put("hand", new ArrayList<>(me.hand));
             h.put("melds", ml);
             h.put("flowers", new ArrayList<>(me.flowers));
+            h.put("drawnTile", me.hand.contains(me.lastDrawn) ? me.lastDrawn : -1);
             push.sendJson(session, h);
         }
     }
@@ -726,16 +790,108 @@ public class GameEngineServiceImpl implements GameEngineService {
     private final class RoomListener implements GameListener {
         private final Room room;
         private volatile RoomManager rm;
+        private Map<String, Object> pendingEvent;
+        private Map<String, Object> pendingMasked;
+        private Seat pendingSeat;
+        private Map<String, Object> pendingCounts;
+        private Map<String, Object> pendingHand;
+        private long pendingSince;
+        private String turnSeat;
+        private long turnDeadline;
+        private final Map<String, List<Integer>> visibleDiscards = new HashMap<>();
 
-        RoomListener(Room room) { this.room = room; }
+        RoomListener(Room room) {
+            this.room = room;
+            for (Seat seat : Seat.values()) visibleDiscards.put(seat.name(), new ArrayList<>());
+        }
 
         void setRoom(RoomManager rm) { this.rm = rm; }
+
+        private void flushEvent() {
+            synchronized (room) {
+                if (pendingEvent == null) return;
+                Map<String, Object> event = pendingEvent, masked = pendingMasked;
+                Map<String, Object> counts = pendingCounts, hand = pendingHand;
+                Seat actor = pendingSeat;
+                pendingEvent = null;
+                pendingMasked = null;
+                pendingSeat = null;
+                pendingCounts = null;
+                pendingHand = null;
+                pendingSince = 0;
+                if (room.stop || room.state == State.CLOSED || room.active != rm) return;
+                if (masked == null) push.broadcastGame(room, event);
+                else push.broadcastGameMasked(room, actor, event, masked);
+                if (counts != null) push.broadcastGame(room, counts);
+                Member member = room.members.get(actor);
+                if (hand != null && RoomSupport.bound(member)) push.sendJson(member.gameWs, hand);
+            }
+        }
+
+        private void flushIfDue() {
+            synchronized (room) {
+                if (pendingEvent != null && System.nanoTime() - pendingSince
+                        >= java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(50)) flushEvent();
+            }
+        }
+
+        private void queueEvent(Map<String, Object> event, Seat actor, Map<String, Object> masked) {
+            synchronized (room) {
+                flushEvent();
+                if (!java.util.Set.of("draw", "discard", "meld").contains(event.get("type")))
+                    throw new IllegalArgumentException("Only action events can be deferred");
+                Player player = rm == null ? null : rm.getPlayer(actor);
+                if (player != null) event.put("handSize", player.hand.size());
+                if (masked != null && player != null) masked.put("handSize", player.hand.size());
+                // Capture on the engine thread. The fallback sender must never walk
+                // live hands/deck while the engine is mutating those collections.
+                pendingCounts = countMessage();
+                pendingHand = handMessage(actor);
+                pendingEvent = event;
+                pendingMasked = masked;
+                pendingSeat = actor;
+                pendingSince = System.nanoTime();
+            }
+        }
+
+        @Override public void onIdle() {
+            synchronized (room) {
+                if (room.stop || room.state == State.CLOSED || room.active != rm) return;
+                flushEvent();
+                syncSeats(false);
+            }
+        }
+
+        private void syncSeats(boolean force) {
+            long now = System.nanoTime();
+            for (Seat viewer : Seat.values()) {
+                Member member = room.members.get(viewer);
+                if (!RoomSupport.bound(member)) continue;
+                WebSocketSession ws = member.gameWs;
+                Object reason = ws.getAttributes().remove(GamePushProtocol.RESYNC);
+                Object next = ws.getAttributes().get(GamePushProtocol.NEXT_SNAPSHOT);
+                boolean periodic = GamePushProtocol.delta(ws)
+                        && (force || !(next instanceof Number n) || now >= n.longValue());
+                if (reason == null && !periodic) continue;
+                synchronized (ws) {
+                    sendSeatState(ws, room, viewer, rm, turnSeat,
+                            Math.max(0, java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(turnDeadline - now)), visibleDiscards);
+                    if (reason != null && member.human != null) member.human.resendPending();
+                }
+                ws.getAttributes().put(GamePushProtocol.NEXT_SNAPSHOT,
+                        now + java.util.concurrent.TimeUnit.SECONDS.toNanos(5));
+                if (pushMetrics != null) pushMetrics.count("mahjong.ws.resync", "reason",
+                        reason == null ? "periodic" : String.valueOf(reason));
+            }
+        }
 
         @Override public void onShuffle(int deckSize) {
             logAll("洗牌完成，共 " + deckSize + " 张");
         }
 
         @Override public void onDeal(Seat dealer) {
+            flushEvent();
+            visibleDiscards.values().forEach(List::clear);
             Map<String, Object> m = new HashMap<>();
             m.put("type", "dealer");
             m.put("dealer", dealer.name());
@@ -744,39 +900,49 @@ public class GameEngineServiceImpl implements GameEngineService {
                 sendHand(s);
             }
             sendCounts();
+            synchronized (room) { syncSeats(true); }
         }
 
         @Override public void onDraw(Seat seat, int tile) {
+            flushEvent();
             Map<String, Object> m = new HashMap<>();
             m.put("type", "draw");
             m.put("seat", seat.name());
             m.put("tile", tile);
-            push.broadcastGame(room, m);
-            sendCounts();
-            sendHand(seat);
+            Map<String, Object> masked = new HashMap<>(m);
+            masked.put("tile", -1);
+            queueEvent(m, seat, masked);
         }
 
         @Override public void onFlower(Seat seat, int tile) {
+            flushEvent();
             Map<String, Object> m = new HashMap<>();
             m.put("type", "flower");
             m.put("seat", seat.name());
             m.put("tile", tile);
+            m.put("handSize", rm.getPlayer(seat).hand.size());
             push.broadcastGame(room, m);
             sendCounts();
             sendHand(seat);
         }
 
         @Override public void onDiscard(Seat seat, int tile) {
+            flushEvent();
+            visibleDiscards.get(seat.name()).add(tile);
             Map<String, Object> m = new HashMap<>();
             m.put("type", "discard");
             m.put("seat", seat.name());
             m.put("tile", tile);
-            push.broadcastGame(room, m);
-            sendCounts();
-            sendHand(seat);
+            queueEvent(m, seat, null);
+            onIdle();
         }
 
         @Override public void onMeld(Seat seat, Meld meld) {
+            flushEvent();
+            if (meld.from() != null && meld.type() != Meld.Type.BU_GANG) {
+                List<Integer> river = visibleDiscards.get(meld.from().name());
+                if (!river.isEmpty()) river.remove(river.size() - 1);
+            }
             Map<String, Object> m = new HashMap<>();
             m.put("type", "meld");
             m.put("seat", seat.name());
@@ -812,17 +978,16 @@ public class GameEngineServiceImpl implements GameEngineService {
                 full.put("meld", push.serializeMeld(meld, false));
                 Map<String, Object> masked = new HashMap<>(m);
                 masked.put("meld", push.serializeMeld(meld, true));
-                push.broadcastGameMasked(room, seat, full, masked);
+                queueEvent(full, seat, masked);
             } else {
                 m.put("meld", push.serializeMeld(meld));
-                push.broadcastGame(room, m);
+                queueEvent(m, seat, null);
             }
-            sendCounts();
-            sendHand(seat);
         }
 
         @Override public void onHu(Seat seat, HuResult result, boolean selfDraw,
                                    boolean tianHu, int baoTing, int tile, Seat from) {
+            flushEvent();
             Map<String, Object> m = new HashMap<>();
             m.put("type", "hu");
             m.put("seat", seat.name());
@@ -860,15 +1025,45 @@ public class GameEngineServiceImpl implements GameEngineService {
         }
 
         @Override public void onTurnStart(Seat seat, String kind, long timeoutMs) {
-            Map<String, Object> m = new HashMap<>();
-            m.put("type", "turn");
-            m.put("seat", seat == null ? null : seat.name());
-            m.put("kind", kind);
-            m.put("timeoutMs", timeoutMs);
-            push.broadcastGame(room, m);
+            synchronized (room) {
+                turnSeat = seat == null ? null : seat.name();
+                turnDeadline = System.nanoTime() + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(timeoutMs);
+                boolean folded = pendingEvent != null;
+                if (folded) {
+                    pendingEvent.put("nextSeat", turnSeat);
+                    pendingEvent.put("timeoutMs", timeoutMs);
+                    if (pendingMasked != null) {
+                        pendingMasked.put("nextSeat", turnSeat);
+                        pendingMasked.put("timeoutMs", timeoutMs);
+                    }
+                    flushEvent();
+                }
+                Map<String, Object> m = new HashMap<>();
+                m.put("type", "turn");
+                m.put("seat", seat == null ? null : seat.name());
+                m.put("kind", kind);
+                m.put("timeoutMs", timeoutMs);
+                push.broadcastGame(room, m);
+                // Dealer's first turn, re-prompts, or a draw-action decision may have
+                // already flushed the event. Carry the authoritative turn in a counts
+                // correction rather than guessing a future seat or replaying an event.
+                if (!folded) {
+                    Map<String, Object> correction = new HashMap<>();
+                    correction.put("type", "counts");
+                    correction.put("nextSeat", turnSeat);
+                    correction.put("timeoutMs", timeoutMs);
+                    synchronized (room) {
+                        for (Member member : room.members.values()) {
+                            if (RoomSupport.bound(member) && GamePushProtocol.delta(member.gameWs))
+                                push.sendJson(member.gameWs, correction);
+                        }
+                    }
+                }
+            }
         }
 
         @Override public void onReport(Seat seat, int mode) {
+            flushEvent();
             String name = mode == 1 ? "天听" : (mode == 2 ? "地听" : "报听");
             logAll(seat.cn + " 报听（" + name + "）");
             Map<String, Object> m = new HashMap<>();
@@ -878,114 +1073,105 @@ public class GameEngineServiceImpl implements GameEngineService {
             push.broadcastGame(room, m);
         }
 
-        @Override public void onResume() {
-            if (room.stop || room.state == State.CLOSED || room.active != rm) return;
-            // 从快照恢复一把：把当前全场状态推给所有在座端（服务重启/断线续跑用）
-            if (rm == null) {
-                return;
-            }
-            /*
-             * ⚠️ board 快照必须【逐座位】组装，不能共用一份。
-             *   别人的暗杠对"我"来说只能是 4 张牌背；如果共用一份带真实牌面的
-             *   melds，那这条恢复路径又把暗杠亮了一次（和 onMeld 是同一类漏洞）。
-             *   其它字段（牌河/张数/花牌）四处相同，没必要重复算。
-             */
-            Map<String, List<Integer>> discards = new HashMap<>();
-            Map<String, Integer> counts = new HashMap<>();
-            Map<String, List<Integer>> flowers = new HashMap<>();
+        private void restoreVisibleDiscards() {
+            Map<String, List<Integer>> discards = visibleDiscards;
+            for (Seat seat : Seat.values())
+                discards.put(seat.name(), new ArrayList<>(rm.getPlayerDiscards(seat)));
             for (Seat s : Seat.values()) {
-                discards.put(s.name(), new ArrayList<>(rm.getPlayerDiscards(s)));
-                Player p = rm.getPlayer(s);
-                if (p != null) {
-                    counts.put(s.name(), p.hand.size());
-                    flowers.put(s.name(), new ArrayList<>(p.flowers));
-                } else {
-                    counts.put(s.name(), 0);
-                    flowers.put(s.name(), new ArrayList<>());
-                }
-            }
-            Map<String, Object> countsMsg = new HashMap<>();
-            countsMsg.put("type", "counts");
-            countsMsg.put("counts", counts);
-            for (Seat viewer : Seat.values()) {
-                Member mem = room.members.get(viewer);
-                if (!RoomSupport.bound(mem)) {
-                    continue;
-                }
-                Map<String, List<Map<String, Object>>> melds = new HashMap<>();
-                for (Seat s : Seat.values()) {
-                    List<Map<String, Object>> ml = new ArrayList<>();
-                    Player p = rm.getPlayer(s);
-                    if (p != null) {
-                        for (Meld meld : p.melds) {
-                            boolean hide = meld.type() == Meld.Type.AN_GANG && s != viewer;
-                            ml.add(push.serializeMeld(meld, hide));
+                Player player = rm.getPlayer(s);
+                if (player == null) continue;
+                for (Meld meld : player.melds) {
+                    if (meld.from() == null || meld.tiles() == null || meld.tiles().length == 0) continue;
+                    List<Integer> river = discards.get(meld.from().name());
+                    int tile = meld.tiles()[0];
+                    if (meld.type() == Meld.Type.CHI) {
+                        // A chi can contain three different tiles; the latest matching river tile was claimed.
+                        for (int i = river.size() - 1; i >= 0; i--) {
+                            int candidate = river.get(i);
+                            if (java.util.Arrays.stream(meld.tiles()).anyMatch(t -> t == candidate)) {
+                                river.remove(i); break;
+                            }
                         }
+                    } else {
+                        int index = river.lastIndexOf(tile);
+                        if (index >= 0) river.remove(index);
                     }
-                    melds.put(s.name(), ml);
                 }
-                Map<String, Object> board = new HashMap<>();
-                board.put("type", "board");
-                board.put("discards", discards);
-                board.put("melds", melds);
-                board.put("flowers", flowers);
-                push.sendJson(mem.gameWs, board);
-                push.sendJson(mem.gameWs, countsMsg);
             }
-            for (Seat s : Seat.values()) {
-                sendHand(s);
+        }
+
+        @Override public void onResume() {
+            synchronized (room) {
+                if (room.stop || room.state == State.CLOSED || room.active != rm) return;
+                restoreVisibleDiscards();
+                for (Member member : room.members.values()) {
+                    if (RoomSupport.bound(member))
+                        member.gameWs.getAttributes().put(GamePushProtocol.RESYNC, "reconnect");
+                }
+                syncSeats(true);
             }
         }
 
         @Override public void onEnd(RoundResult result) {
+            flushEvent();
+            turnSeat = null;
+            turnDeadline = 0;
             Map<String, Object> m = new HashMap<>();
             m.put("type", "end");
             m.put("result", result.toString());
             push.broadcastGame(room, m);
         }
 
-        private void sendHand(Seat seat) {
-            if (room.stop || room.state == State.CLOSED || room.active != rm) return;
-            if (rm == null) {
-                return;
-            }
-            Member mem = room.members.get(seat);
-            if (!RoomSupport.bound(mem)) {
-                return;
-            }
-            Player p = rm.getPlayer(seat);
-            if (p == null) {
-                return;
-            }
+        /** Engine-thread-only capture; timer-based flushes send these detached values. */
+        private Map<String, Object> handMessage(Seat seat) {
+            if (rm == null) return null;
+            Player player = rm.getPlayer(seat);
+            if (player == null) return null;
             List<Map<String, Object>> melds = new ArrayList<>();
-            for (Meld meld : p.melds) {
-                melds.add(push.serializeMeld(meld));
+            for (Meld meld : player.melds) melds.add(push.serializeMeld(meld));
+            Map<String, Object> message = new HashMap<>();
+            message.put("type", "hand");
+            message.put("hand", new ArrayList<>(player.hand));
+            message.put("melds", melds);
+            message.put("flowers", new ArrayList<>(player.flowers));
+            return message;
+        }
+
+        private void sendHand(Seat seat) {
+            synchronized (room) {
+                if (room.stop || room.state == State.CLOSED || room.active != rm) return;
+                Member member = room.members.get(seat);
+                if (!RoomSupport.bound(member)) return;
+                Map<String, Object> message = handMessage(seat);
+                if (message != null) push.sendJson(member.gameWs, message);
             }
-            Map<String, Object> m = new HashMap<>();
-            m.put("type", "hand");
-            m.put("hand", new ArrayList<>(p.hand));
-            m.put("melds", melds);
-            m.put("flowers", new ArrayList<>(p.flowers));
-            push.sendJson(mem.gameWs, m);
+        }
+
+        /** Engine-thread-only; suppressed broadcasts need no full-mode state construction. */
+        private Map<String, Object> countMessage() {
+            if (rm == null || room.members.values().stream().noneMatch(member ->
+                    RoomSupport.bound(member) && !GamePushProtocol.delta(member.gameWs))) return null;
+            Map<String, Integer> counts = new HashMap<>();
+            for (Seat seat : Seat.values()) {
+                Player player = rm.getPlayer(seat);
+                counts.put(seat.name(), player == null ? 0 : player.hand.size());
+            }
+            Map<String, Object> message = new HashMap<>();
+            message.put("type", "counts");
+            message.put("counts", counts);
+            message.put("wall", rm.deckSize());
+            return message;
         }
 
         private void sendCounts() {
-            if (rm == null) {
-                return;
+            synchronized (room) {
+                Map<String, Object> message = countMessage();
+                if (message != null) push.broadcastGame(room, message);
             }
-            Map<String, Integer> counts = new HashMap<>();
-            for (Seat s : Seat.values()) {
-                Player p = rm.getPlayer(s);
-                counts.put(s.name(), p == null ? 0 : p.hand.size());
-            }
-            Map<String, Object> m = new HashMap<>();
-            m.put("type", "counts");
-            m.put("counts", counts);
-            m.put("wall", rm.deckSize());
-            push.broadcastGame(room, m);
         }
 
         private void logAll(String text) {
+            flushEvent();
             Map<String, Object> m = new HashMap<>();
             m.put("type", "log");
             m.put("text", text);

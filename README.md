@@ -1,68 +1,45 @@
-# 海南麻将
+# 海南麻将：并发工程实践
 
-支持四人联网、机器人托管、断线重连和历史战绩的海南麻将项目。后端使用 Java 17、Spring Boot 2.7.18、MyBatis-Plus、MySQL 与 Redis；前端使用 Vue 3、Pinia 与 Vite，支持手机虚拟横屏。
+支持四人联网、机器人托管、断线重连和历史战绩。后端 Java 17 / Spring Boot 2.7.18 / MyBatis-Plus / MySQL / Redis，前端 Vue 3 / Pinia / Vite。项目用于实践并发正确性、性能归因和过载保护。
 
-胡牌判定参考开源 `mjlib_java` 查表实现，并扩展至吃碰杠后的 2/5/8/11/14 张暗牌。HTTP 和 WebSocket 使用 JWT 认证，access token 有效期 30 分钟，refresh token 有效期 7 天。
+## 从这里阅读
 
-## 最近更新（2026-10-10～11）
+| 关注点 | 材料 |
+|---|---|
+| 八天如何从压测走到优化与反证 | [方法论与实测证据](HainanMaJhong/docs/八天并发优化方法论_2026-10-16.md) |
+| 具体实现了哪些并发模式 | [失效条件、保护方法与源码入口](HainanMaJhong/docs/并发模式与失效清单.md) |
+| 正常、超载与异常的边界 | [运行额度、CPU 护栏与回退](HainanMaJhong/docs/运行边界与线上额度_2026-10-16.md) |
+| 最新闭环验证与后续改动 | [320 人两轮 30 分钟及超载/回退证据](HainanMaJhong/docs/运行边界闭环证据_2026-10-16.md) · [告警、测量与复验入口](HainanMaJhong/docs/运行边界闭环后续实施_2026-10-16.md) |
+| 查设计和历史报告 | [文档总索引](HainanMaJhong/docs/README.md) |
+| 查看实现、规则与启动方式 | [项目说明](HainanMaJhong/README.md) |
+| 复现负载与查看公开结果 | [压测入口](docs/performance/README.md) · [关键结果与来源](docs/performance/public/README.md) |
+| 从源码交付 | [构建与数据规范](HainanMaJhong/docs/工程交付与数据规范.md) · [本次构建核验](HainanMaJhong/docs/干净构建核验_2026-10-16.md) |
 
-- **3.1 房间生命周期**：关闭终态、代际与版本保护、Redis 原子更新和任务取消，防止解散后迟到任务重写快照；协调结束与结算。
-- **3.2 容量监控**：Actuator/Micrometer、Prometheus、Grafana 面板、告警规则和 Windows 一键启动脚本，观察 HTTP、WebSocket、JVM、数据库、Redis 与主机资源。
-- **4.1 战绩 V2**：拆分列表、总览、局摘要分页与单局详情，首屏默认 10 局，固定分页截止点。
-- **4.2 前端按需加载**：合并重复请求，详情按需读取，结算后增量刷新；隐藏暂停、关闭取消任务、限制失败重试。
-- **4.3 JSON 压缩**：战绩路由使用 Nginx gzip 级别 1，设置 `Vary` 和 `private, no-store`，提供安装、验证与回退工具。
+## 当前能证明的结果
 
-## 真实压测结果
+- P2 受控 64 人窗口：数据库累计语句耗时 **14.3→4.1 秒（−71.3%）**；P2 后 192/256 人各 300 秒完成 **36,001/48,001 请求、0 失败**，最慢接口 P95 **32.6/34.9 ms**。
+- 256 人完成两轮 30 分钟，第三轮中止；320 人先有三轮 15 分钟，10/16 干净包 `44f94228…` 又完成同进程两轮 30 分钟、720,001 请求零失败。后续新包需单独复验。
+- 512 人热实例、放大准入额度下完成 **96,001 请求、0 最终失败、P95 261 ms**；该轮按当时的"未匹配广播率"门槛判为未通过——该计数器已查明为**工具跨连接记账伪影**（协议序号 273 万帧零缺口），2026-10-16 起判据改为**协议序号缺口（`maxSequenceGaps`）**，历史轮次不改判。见[工具已知偏差](HainanMaJHong/docs/性能测试工具已知偏差.md)。
+- WS delta 在成功轮发送约 **−46%**、字节约 **−36%**，重复实验没有可分辨 CPU 收益，320 人仍有间歇收尾失败，**保留默认 full**。
+- 登录与查询已实现信号量、分层令牌桶、429/Retry-After、有限退避抖动。战绩并发保留 **48**；CPU 压测护栏默认 **>0.95 持续至少 60 秒**。
 
-2026-10-11 复测使用 48 桌、192 个独立测试账号，每桌 2.5 次 GET/秒，正式窗口 300 秒。
+以上是历史实测摘录。环境经历带宽 10→20 Mbps、数据库配置、保护策略与预热变化，不能把人数增长全部归因于代码。结论、失败轮与限制见对应报告和方法论。
 
-| 场景 | HTTP 总数 / 失败 | 最慢接口 P95 | CPU 均值 | 整机出网 | 完整验收 |
-|---|---:|---:|---:|---:|---|
-| 10/09 基线 | 36,000 / 0 | 39.0 ms | 48.3% | 7.93 Mbps | 通过 |
-| 10/11 原接口无压缩 | 36,001 / 15 | 1,179.3 ms | 55.7% | 5.47 Mbps | 通过 |
-| 10/11 原接口 gzip 复测 | 36,001 / 10 | 892.0 ms | 53.4% | 3.57 Mbps | 通过 |
-| 10/11 V2 + gzip | 36,001 / 8 | 1,052.8 ms | 60.1% | 3.22 Mbps | 未通过 |
+## 完整构建
 
-原接口 gzip 复测完整响应体从解码后的 101.42 MiB 压至 24.16 MiB，减少 **76.2%**。V2 性能与结算检查达标，但两次收尾 pending 查询连接重置，严格验收未通过；补充读取确认房间已清理，仍保留失败结果。本轮没有升至 256 人。
+准备 JDK 17、Maven、Node.js ≥22、pnpm，复制 `HainanMaJhong/.env.example` 并在本地填写环境配置。数据库初始化及 P2 切换见项目文档。
 
-**流量下降，但尚未证明容量上限提升。** 低负载公网延迟、账号历史和广播确认行为与旧基线不同，不能把延迟或 CPU 变化全部归因于代码。另一次 gzip 首测触发保护停止，完整报告保留该失败记录。
-
-![完整 300 秒轮次出网对比](docs/performance/results-2026-10-11-retest/charts/netMbps.svg)
-
-- [线上复测完整报告](HainanMaJhong/docs/线上压测对比_2026-10-11.md) · [PDF](output/pdf/海南麻将线上压测对比_2026-10-11.pdf) · [CSV](docs/performance/results-2026-10-11-retest/online-comparison.csv)
-- [两日优化对比：构造样本与线上配置核对](HainanMaJhong/docs/优化前后对比_2026-10-10至11.md) · [PDF](output/pdf/海南麻将优化前后对比_2026-10-10至11.pdf)
-
-## 构建与部署
-
-```bash
+```powershell
 cd HainanMaJhong/frontend
-pnpm install --frozen-lockfile
-pnpm build
-pnpm check
-pnpm check:records-v2
-pnpm check:record-refresh
+pnpm install --frozen-lockfile --ignore-scripts
 cd ..
-mvn clean package
+./ops/build-release.ps1 -JavaHome '<JDK17目录>' -Maven '<mvn.cmd路径>'
 ```
 
-使用 JDK 17。前端构建写入 `src/main/resources/static`，产物随代码入库；打包使用 `clean`，避免旧资源残留。数据库、Redis 和 JWT 凭据参照模块 `.env.example` 配置，实际 `.env` 不入库。生产使用 `SPRING_PROFILES_ACTIVE=prod`。
+生成 `target/HainanMaJhong2-1.0-SNAPSHOT.jar` 及 SHA256/源码清单。脚本重建前端、执行 Maven clean package、编译但不运行测试，并核对全部编译类入包。运行服务前按[项目说明](HainanMaJhong/README.md)配置 MySQL、Redis 与环境变量。本次构建不代表运行时和性能验收。
 
-房间运行态仍在应用内存，当前按**单实例**部署。Redis 快照用于恢复和生命周期保护，不应直接增加应用副本分流房间。
+## 目录与公开边界
 
-## 监控访问
+`HainanMaJhong/` 是应用；`docs/performance/` 是参数化压测工具；`docs/performance/public/` 是人工复核的公开结果。真实账号、原始结果、私有脚本和数据库备份保持本地忽略；jar、交付 zip 与诊断转储不入库。发布前从源码完整构建，并通过内容 hash 确认版本。
 
-运维电脑安装并配置 Prometheus/Grafana 后，双击 [start-monitoring.cmd](HainanMaJhong/ops/monitoring/start-monitoring.cmd)，健康检查完成后打开 `http://127.0.0.1:3000/d/hainan-capacity`。默认安装根目录 `F:\MahjongMonitoring`，可通过 PowerShell 启动器参数更改。
-
-管理端口默认只监听 `127.0.0.1:9091`，通过 SSH 隧道采集。面板配置和首次导入步骤见 [容量监控说明](HainanMaJhong/docs/容量监控面板说明.md)。
-
-## 文档与目录
-
-- [模块 README：规则、协议、运行与部署](HainanMaJhong/README.md)
-- [前端开发说明](HainanMaJhong/frontend/README.md)
-- [并发能力提升计划书](HainanMaJhong/docs/海南麻将并发能力提升计划书.md)
-- [房间生命周期修复](HainanMaJhong/docs/房间生命周期修复说明.md)
-- [战绩 V2 接口](HainanMaJhong/docs/战绩V2接口说明.md)
-- [战绩前端按需加载](HainanMaJhong/docs/战绩前端按需加载说明.md)
-- [HTTP JSON 压缩](HainanMaJhong/docs/HTTP_JSON压缩说明.md)
-- `HainanMaJhong/src/`：后端源码、测试与静态资源；`frontend/`：Vue 源码；`ops/`：监控与运维工具。
-- `docs/performance/`：测试与报告生成脚本、公开汇总数据和图表。原始线上采样和运行日志保留在本机，凭据、私钥不上传。
+判胡查表实现参考开源 mjlib_java，并针对海南麻将规则与吃碰杠后的暗牌数量扩展；细节见项目说明。历史运维包的生成日期与当前源码不同，请以完整构建和内容 hash 确认版本。

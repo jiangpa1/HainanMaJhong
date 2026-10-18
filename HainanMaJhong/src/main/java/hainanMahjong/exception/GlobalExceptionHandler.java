@@ -16,6 +16,8 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import javax.validation.ConstraintViolation;
 import javax.validation.ConstraintViolationException;
 import java.util.List;
+import java.util.Map;
+import org.springframework.http.ResponseEntity;
 
 /**
  * 全局异常处理：保证<b>任何</b>异常出口都返回统一的 {@link Result} 形状。
@@ -29,7 +31,7 @@ import java.util.List;
  * <p><b>为什么不加 {@code @ResponseStatus}</b>：本项目的约定是 <b>HTTP 状态码恒为 200，
  * 业务码放在 {@code Result.code} 里</b> —— {@link hainanMahjong.interceptor.JwtInterceptor}
  * 的 401 就是这么写的（{@code response.setStatus(SC_OK)} + {@code Result.unauthorized(...)}）。
- * 这里保持一致，前端只需看 {@code code}。</p>
+ * 普通业务异常保持一致。入口过载拒绝是例外：HTTP 429 携带 Retry-After，业务码也为 429。</p>
  *
  * <p><b>两类异常要分清</b>：</p>
  * <ul>
@@ -42,6 +44,16 @@ import java.util.List;
 public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    /** Admission is a transport-level refusal: do not disguise it as HTTP 200 or log each hit. */
+    @ExceptionHandler(AdmissionRejectedException.class)
+    public ResponseEntity<Result<?>> handleAdmission(AdmissionRejectedException e) {
+        Result<?> body = Result.build(429, e.getMessage(), Map.of("retryAfterSeconds", e.getRetryAfterSeconds()));
+        return ResponseEntity.status(429)
+                .header("Retry-After", Integer.toString(e.getRetryAfterSeconds()))
+                .header("Cache-Control", "no-store")
+                .body(body);
+    }
 
     /** 业务异常：用异常自带的 code（401/403/404/…）。 */
     @ExceptionHandler(BusinessException.class)

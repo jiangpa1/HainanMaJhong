@@ -84,4 +84,39 @@ back/*.jar
 !/docs/performance/results-2026-10-11-retest/charts/
 !/docs/performance/results-2026-10-11-retest/online-comparison.csv
 !/docs/performance/results-2026-10-11-retest/online-comparison-data.json
+
+# 2026-10-12 192 人复测：原始 results.json 含测试账号标识，只保留汇总与说明
+!/docs/performance/results-2026-10-12-192-retest/
+/docs/performance/results-2026-10-12-192-retest/*
+!/docs/performance/results-2026-10-12-192-retest/README.md
+!/docs/performance/results-2026-10-12-192-retest/run-summary.csv
+!/docs/performance/results-2026-10-12-192-retest/extract-run.mjs
 *.dpapi
+
+# Local evidence archive and generated operator bundles; never upload private archives.
+/.local-archive/
+/deliverables/*.zip
+/deliverables/SHA256SUMS.txt
+/HainanMaJhong/release/
+/docs/performance/private/
+/docs/performance/runs/
+/docs/performance/config.local.json
+/docs/performance/run-summary.csv
+
+# Raw/derived history and database backups stay local; publish reviewed scalar excerpts.
+/docs/performance/history/*
+!/docs/performance/history/index.csv
+!/docs/performance/history/README.md
+/data/schema-backups/*.sql
+/data/workspace-cleanup-*.json
+*.jfr
+*.hprof
+*.heapdump
+*.pem
+*.key
+/HainanMaJhong/ops/monitoring/private/
+
+# Workstation-only launchers, dashboard backup and accidental empty scratch file.
+/HainanMaJhong/ops/dev-connect/
+/HainanMaJhong/ops/monitoring/*.bak-*
+/online-capacity-retest.mjs

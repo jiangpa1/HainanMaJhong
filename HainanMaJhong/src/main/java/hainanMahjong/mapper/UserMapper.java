@@ -8,6 +8,10 @@ import org.apache.ibatis.annotations.Select;
 
 @Mapper
 public interface UserMapper extends BaseMapper<User> {
+    // Deliberately exclude passwords and roles from record-name reads.
+    @Select("<script>SELECT id, nickname, username FROM `user` WHERE id IN "
+            + "<foreach collection='ids' item='id' open='(' separator=',' close=')'>#{id}</foreach></script>")
+    java.util.List<User> recordNames(@Param("ids") java.util.Collection<Long> ids);
 
     /**
      * 查询用户名；查不到返回 null。

@@ -26,6 +26,12 @@ export function useRecordTask() {
     if (disposed || current !== job || job.done) return Promise.resolve()
     if (job.flight) return job.flight
     if (!visible()) return Promise.resolve()
+    const remaining = (job.notBefore || 0) - Date.now()
+    if (remaining > 0) {
+      clearTimer()
+      timer = setTimeout(() => { timer = null; attempt(job) }, remaining)
+      return Promise.resolve()
+    }
     if (job.ready) { apply(job, job.data); return Promise.resolve() }
     busy.value = true
     job.flight = Promise.resolve().then(() => {
@@ -42,7 +48,9 @@ export function useRecordTask() {
       job.onFailure?.(e)
       const retryable = ![400, 401, 4011, 403, 404].includes(e.code)
       if (retryable && job.attempts < delays.length) {
-        const delay = delays[job.attempts++]
+        let delay = delays[job.attempts++]
+        if (e.code === 429) delay = Math.max(delay, e.retryAfterMs || 2000) + Math.random() * 500
+        job.notBefore = Date.now() + delay
         if (visible()) timer = setTimeout(() => { timer = null; attempt(job) }, delay)
       } else job.done = true
     }).finally(() => {
@@ -55,7 +63,7 @@ export function useRecordTask() {
   function run(job) {
     if (current?.key === job.key && !current.done) return current.flight || Promise.resolve()
     cancel()
-    current = { ...job, attempts: 0, flight: null, done: false, ready: false }
+    current = { ...job, attempts: 0, flight: null, done: false, ready: false, notBefore: 0 }
     return attempt(current)
   }
 

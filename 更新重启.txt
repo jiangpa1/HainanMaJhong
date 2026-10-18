@@ -1,2 +1,0 @@
-systemctl restart mahjong
-systemctl status mahjong

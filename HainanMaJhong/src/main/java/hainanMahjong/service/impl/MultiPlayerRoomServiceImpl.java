@@ -17,6 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.socket.WebSocketSession;
+import hainanMahjong.websocket.GamePushProtocol;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -127,6 +128,7 @@ public class MultiPlayerRoomServiceImpl implements MultiPlayerRoomService {
 
     @Override
     public void openGame(WebSocketSession session) {
+        session.getAttributes().putIfAbsent(GamePushProtocol.MODE, "full");
         long userId = authUserId(session);
         String code = parseParam(session, "code");
         Seat seat = parseSeat(session);
@@ -177,6 +179,16 @@ public class MultiPlayerRoomServiceImpl implements MultiPlayerRoomService {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> msg = mapper.readValue(payload, Map.class);
                 String type = (String) msg.get("type");
+                if ("resync".equals(type)) {
+                    long now = System.nanoTime();
+                    Object last = session.getAttributes().get(GamePushProtocol.LAST_REQUEST);
+                    if (!(last instanceof Number n)
+                            || now - n.longValue() >= java.util.concurrent.TimeUnit.SECONDS.toNanos(5)) {
+                        session.getAttributes().put(GamePushProtocol.LAST_REQUEST, now);
+                        session.getAttributes().put(GamePushProtocol.RESYNC, "client-request");
+                    }
+                    return;
+                }
                 if ("metricsAck".equals(type)) {
                     if (metrics != null && msg.get("seq") instanceof Number sequence)
                         metrics.acknowledge(sequence.longValue(), session, room);
@@ -257,9 +269,6 @@ public class MultiPlayerRoomServiceImpl implements MultiPlayerRoomService {
             }
             m.gameWs = session;
             m.offline = false;
-            m.human.attach(msg -> push.sendJson(session, msg));
-            m.controller.setDelegate(m.human);
-            m.human.resendPending();
             registry.bindUser(userId, code);
 
             /*
@@ -290,6 +299,8 @@ public class MultiPlayerRoomServiceImpl implements MultiPlayerRoomService {
                 players.add(p);
             }
             welcome.put("players", players);
+            welcome.put("push", session.getAttributes().get(GamePushProtocol.MODE));
+            welcome.put("pushProtocol", GamePushProtocol.VERSION);
             push.sendJson(session, welcome);
 
             Map<String, Object> match = new HashMap<>();
@@ -310,8 +321,13 @@ public class MultiPlayerRoomServiceImpl implements MultiPlayerRoomService {
                 }
                 hs.put("coins", push.coinView(room));
                 push.sendJson(session, hs);
-                engine.pushSeatState(session, room, m.seat);
             }
+            // Attach only after the introductory frames; a concurrently generated
+            // request must not arrive before hand_start clears the client's state.
+            m.human.attach(msg -> push.sendJson(session, msg));
+            m.controller.setDelegate(m.human);
+            // Scene resynchronization and pending decisions run on the engine thread.
+            engine.pushSeatState(session, room, m.seat);
             // 重启后第一次有人连回：若 Redis 说本块正在打，则续跑本块
             if (room.state == State.PLAYING && room.blockThread == null && room.resumeSeed != null) {
                 EngineStart seed = room.resumeSeed;

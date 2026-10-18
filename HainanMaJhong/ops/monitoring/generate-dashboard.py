@@ -41,15 +41,23 @@ chart('动作接收与已提交结算 / 秒', [('动作 {{action}}',rate('mahjon
 chart('结束、结算与快照失败 / 秒', [('事务 {{operation}}',rate('mahjong_db_transaction_seconds_count','outcome="error"')),
     ('快照 {{operation}}',rate('mahjong_room_snapshot_seconds_count','outcome="error"')),
     ('快照被拒 {{operation}}',rate('mahjong_room_snapshot_seconds_count','outcome="rejected"'))], 'ops')
+chart('场次结束写入失败', [('关闭失败/秒',rate('mahjong_room_session_close_failures_total')),
+    ('关闭失败累计',m('mahjong_room_session_close_failures_total'))], 'ops',
+    '收口时幂等重试 3 次仍失败才自增；启动即注册为 0，因此 >0 就代表真有场次没写结束时间。对应告警 MahjongSessionCloseFailed，需按日志里的 room/session/generation 人工核对。')
 row('2 · HTTP 接口')
 chart('各接口请求率', [('{{method}} {{route}} {{outcome}}',rate('mahjong_http_response_seconds_count'))], 'reqps')
 chart('HTTP 服务端完整处理 P50/P95/P99', quantiles('mahjong_http_response_seconds','route'), 's',
     '服务端处理到响应写入完成；包含业务码失败，标签使用路由模板。不能替代客户端完整接收耗时。')
 chart('HTTP 首次写入 P50/P95/P99', quantiles('mahjong_http_first_byte_seconds','route'), 's',
     '首次写入应用响应流；并非经公网到达客户端的 TTFB。没有正文时采用服务端处理耗时。')
-chart('HTTP 失败比例', [('错误比例', 'sum('+rate('mahjong_http_response_seconds_count','outcome!="success"')+') / sum('+rate('mahjong_http_response_seconds_count')+')')], 'percentunit',
-    '同时统计 HTTP 错误与 HTTP 200 中 code!=200 的业务失败。')
+chart('HTTP 真失败与主动拒绝比例', [('真失败比例', 'sum('+rate('mahjong_http_response_seconds_count','outcome!~"success|rate_limited"')+') / sum('+rate('mahjong_http_response_seconds_count')+')'),
+    ('主动拒绝(429)', 'sum('+rate('mahjong_http_response_seconds_count','outcome="rate_limited"')+') / sum('+rate('mahjong_http_response_seconds_count')+')')], 'percentunit',
+    '真失败＝既非 success 也非 rate_limited，与告警 MahjongHttpErrors 同口径，包含 HTTP 错误与 HTTP 200 中 code!=200 的业务失败。主动拒绝是准入保护削峰，与应用故障无关，单列一条。')
 chart('各接口平均响应正文大小', [('{{route}}', 'sum by(route)('+rate('mahjong_http_response_body_bytes_sum')+') / sum by(route)('+rate('mahjong_http_response_body_bytes_count')+')')], 'bytes', 'UTF-8 应用正文，Nginx 压缩前，不包括响应头。')
+chart('准入拒绝率（按 group）', [('{{group}} 拒绝率', 'sum by (group) ('+rate('mahjong_admission_requests_total','outcome!="admitted"')+') / sum by (group) ('+rate('mahjong_admission_requests_total')+')')], 'percentunit',
+    '分母是该组的全部准入判定。某组拒绝率 >5% 且流量 >1 次/秒持续 2 分钟触发 MahjongAdmissionRejecting。拒绝不等于故障：它是用"少收"换"已收的延迟"，判读时必须和第 2 行各接口 P95 一起看。')
+chart('准入在途并发与限流键', [('在途 {{group}}',m('mahjong_admission_inflight')),('限流键 {{group}}/{{scope}}',m('mahjong_admission_keys'))], 'short',
+    '在途＝已通过闸门但尚未释放的请求数；顶到额度（登录 1、战绩 48、legacy 8）说明该组并发已打满。限流键数与每分钟键膨胀相关，上限 TRAFFIC_MAX_KEYS=10000。')
 row('3 · WebSocket')
 chart('房间、游戏连接与断线率', [('连接 {{endpoint}}',m('mahjong_ws_connections')),('断线/秒 {{endpoint}}',rate('mahjong_ws_closed_total'))])
 chart('握手 P50/P95/P99', quantiles('mahjong_ws_handshake_seconds','endpoint'), 's')
@@ -67,6 +75,8 @@ chart('GC 暂停 P95、累计暂停占比', [('GC P95', 'histogram_quantile(0.95
 chart('线程、阻塞与定时任务', [(key,m(name)) for key,name in [('线程总数','jvm_threads_live_threads'),
     ('阻塞线程','mahjong_jvm_threads_blocked'),('引擎线程','mahjong_engine_threads'),('定时器线程','mahjong_engine_timer_threads'),('定时任务等待','mahjong_engine_timer_pending')]])
 chart('进程 CPU、打开文件描述符', [('进程 CPU',m('process_cpu_usage')),('FD',m('process_files_open_files')),('FD 上限',m('process_files_max_files'))])
+chart('Tomcat 线程池饱和', [('忙线程',m('tomcat_threads_busy_threads')),('当前线程',m('tomcat_threads_current_threads')),('上限',m('tomcat_threads_config_max_threads'))], 'short',
+    '忙线程顶到上限（线上为 200）＝请求已在排队，是"延迟爆炸"的前兆；此时准入拒绝通常已救不回已接纳请求的延迟。accept 队列长度 Tomcat 不暴露，队列积压只能从客户端延迟倒推。')
 row('5 · MySQL 与 Redis')
 chart('SQL 调用 P50/P95/P99', quantiles('mahjong_db_query_seconds','operation'), 's', 'Mapper 方法耗时包含获取连接、执行和映射；不采集 SQL 参数。定位慢 SQL 仍需受控 slow log 与 EXPLAIN。')
 chart('结算及关闭事务 P50/P95/P99', quantiles('mahjong_db_transaction_seconds','operation'), 's', '环绕事务代理，包括提交和锁等待。')
@@ -82,8 +92,9 @@ chart('采集与外部探测状态', [('应用采集',m('up')),('Redis',m('mahjo
 row('6 · 主机与带宽')
 chart('主机 CPU 使用率', [('CPU','1 - '+rate('mahjong_host_cpu_ticks_idle')+' / '+rate('mahjong_host_cpu_ticks_total'))], 'percentunit')
 chart('主机可用内存', [('MemAvailable',m('mahjong_host_memory_available')),('MemTotal',m('mahjong_host_memory_total'))], 'bytes')
-chart('网卡出入流量与 10Mbps 出网占比', [('出网 bit/s',rate('mahjong_host_network_transmit_bytes')+' * 8'),
-    ('入网 bit/s',rate('mahjong_host_network_receive_bytes')+' * 8'),('出网限制 bit/s','vector($outbound_bps)')], 'bps', '配置所选网卡累计字节。默认带宽上限 10Mbps；可在面板变量修改。不是云厂商计费或限速遥测。')
+chart('网卡出入流量与出网带宽占比', [('出网 bit/s',rate('mahjong_host_network_transmit_bytes')+' * 8'),
+    ('入网 bit/s',rate('mahjong_host_network_receive_bytes')+' * 8'),('出网限制 bit/s','vector($outbound_bps)')], 'bps',
+    '配置所选网卡累计字节。限制线取面板变量 outbound_bps，当前 20000000 = 20Mbps（2026-10-14 由 10Mbps 升级）；变量存在 Grafana 库里，改仓库 JSON 不会自动更新。告警阈值为 15000000 bit/s（20Mbps 的 75%）。不是云厂商计费或限速遥测。')
 chart('TCP 重传与磁盘 I/O', [('TCP 重传/秒',rate('mahjong_host_tcp_retransmits')),('磁盘读 bytes/s',rate('mahjong_host_disk_read_bytes')),
     ('磁盘写 bytes/s',rate('mahjong_host_disk_write_bytes')),('磁盘忙碌 ms/s',rate('mahjong_host_disk_io_milliseconds'))])
 chart('主机采集可用与采样滞后', [('主机可用',m('mahjong_host_available')),('网卡可用',m('mahjong_host_network_available')),
@@ -94,7 +105,7 @@ panels.append({'id':len(panels)+1,'type':'text','title':'测量口径与待补�
 dashboard = {'uid':'hainan-capacity','title':'海南麻将 · 容量监控','schemaVersion':38,'version':1,'editable':True,
     'timezone':'browser','refresh':'10s','time':{'from':'now-30m','to':'now'},'tags':['mahjong','capacity'],
     '__inputs':[{'name':'DS_PROMETHEUS','label':'Prometheus','type':'datasource','pluginId':'prometheus','pluginName':'Prometheus'}],
-    'templating':{'list':[{'name':'outbound_bps','label':'出网带宽上限 bit/s','type':'constant','query':'10000000','current':{'text':'10000000','value':'10000000'},'hide':0}]},
+    'templating':{'list':[{'name':'outbound_bps','label':'出网带宽上限 bit/s','type':'constant','query':'20000000','current':{'text':'20000000','value':'20000000'},'hide':0}]},
     'panels':panels}
 Path(__file__).with_name('capacity-dashboard.json').write_text(json.dumps(dashboard,ensure_ascii=False,indent=2),encoding='utf-8')
 print('Generated', len(panels), 'panels')

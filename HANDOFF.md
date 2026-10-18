@@ -1,192 +1,91 @@
- > 2026-10-11 状态补充：3.1、3.2 和 4.1～4.3 已实现并部署核对。当前代码与实测结果以 README.md 和 HainanMaJhong/docs/线上压测对比_2026-10-11.md 为准。下文 2026-09-24 的部署状态、测试数量及待办属于历史记录。
+# 海南麻将：当前交接
 
-# 海南麻将 · 交接文档（2026-09-24 重写）
+更新：2026-10-12。仓库根为 F:/HainanMaJhong2，实际 Maven/Vue 项目为 HainanMaJhong。
 
-> **本文件是当前唯一权威交接。** 旧版（描述 `hainanjong` 单包 + `static/` 单文件前端的时代）已整体过期，
-> 对应代码在提交 `2a75c4d` 里被重写。桌面上的 `海麻-新会话交接.md` 只是指向本文件的入口。
-> 详细结构见 `HainanMaJhong/README.md` 的「代码结构」，前端硬约定见 `HainanMaJhong/frontend/README.md`。
-> 新会话直接说「请先读 F:/HainanMaJhong2/HANDOFF.md」即可。
+## 当前状态
 
----
+P0 生命周期与监控、P1 分页/按需加载/gzip 已实现并经过此前线上核对。P2 已完成本地实现和测试，但尚未在线上迁移、部署或验收。不能据此提高运营人数。
 
-## 0. 一句话现状
+P2 包括批量昵称、参与关系索引、事务内持久化汇总、版本化有界缓存，以及显式回填/比对/promote/revoke 工具。默认双写开启、新读关闭。
 
-后端 = Spring Boot 2.7 / JDK 17 分层架构 + JWT 认证 + 原生 WebSocket 双端点；
-前端 = Vue 3 + Vite 单页应用（含手机虚拟横屏）；
-**本地**：后端 38 个测试、前端 `pnpm check`、smoke 123 项、桌面探针 115 项、手机探针 127/97 项，全绿；
-**线上**：`jiangpahnmj.cn` 仍跑旧版本，新 jar 已打好但**还没部署**（且服务器当前连错了数据库，见 §6.1）。
+**2026-10-12 17:41–17:56 已在线上完成 P2 上线并复测 192 人**：备份（`/root/mahjong/backup-20261012-174147.sql.gz`）+ 恢复验证 → inspect（0 重复局/流水/不完整四家/孤立流水）→ backfill 1606 场（会话 70 有一处旧数据异常，修正 `game_round_scores.id=593` 的 user 0→4 一行）→ verify → promote 建门闩 → 设 `RECORDS_P2_READ_ENABLED=true`（`.env` 备份 `.env.bak-p2read-20261012-174640`）并重启。切换前后 6 账号 ×16 请求差异 0；16 桌受控实验数据库总时间 14.3 s→4.1 s（-71%）。
 
----
+容量结果：新读关闭时 192 人两轮都被 CPU 保护停止（16.3 s / 74.4 s，Hikari 排队 20–51，mysqld 占 67–120%）；打开新读后 **192 人（48 桌/120 次每秒）与 256 人（64 桌/160 次每秒）各 1 轮 300 秒均跑满、0 失败、最慢接口 P95 32.6 / 34.9 ms、Hikari 排队 0、CPU 负载期峰值 0.85 / 0.82，两次验收都通过**；随后 256 人做 3×30 分钟目标档位重复验证，**前两轮各 1800 秒跑满、288,000/288,001 次请求 0 失败、P95 35.0/35.3 ms 通过**，第 3 轮按操作者要求中止在 1,194 秒（66%，0 失败、房间正常解散）记为未完成。第 2 轮出现过 2 次孤立的瞬时 CPU 1.00/0.93（未连续三拍，保护未触发，全程 0 失败）。
 
-## 1. 仓库与分支
+**2026-10-14 带宽升到 20 Mbps 后做扩展阶梯（账号已由 256 补到 512、压测入口桌数上限由 64 放宽到 128）**：320 人（80 桌，60,001 请求 0 失败、P95 40.0 ms）与 384 人（96 桌，72,000 请求 0 失败、P95 59.5 ms）各 300 秒**通过**；448 人（112 桌）178 秒被 CPU 保护停止并出现 180 次 `ECONNRESET`（0.36%），512 人未测。**容量上限在 384 与 448 人之间**，绑定资源是 CPU（2 vCPU 到 0.95）与内存（126 MiB 且随人数单调下降），带宽不再是约束（448 人时应用出网 6.6 Mbps）。10-14 前两次尝试是本机 Clash Verge 代理 TUN + metrics 隧道断开的发压侧事故（服务器握手全成功、nginx 无报错），已标注无效应。出网告警阈值已由 7.5 改为 15 Mbps，**线上 Prometheus 需 reload**。
 
-| 项 | 值 |
-|---|---|
-| git 根 / 模块 | `F:\HainanMaJhong2` / `F:\HainanMaJhong2\HainanMaJhong` |
-| 远程 | `https://github.com/jiangpa1/HainanMaJhong`（public） |
-| 当前分支 | **`release/v2-arch`**（拉出来当新主分支用） |
-| 提交 | `2a75c4d 整理代码架构，增加全局拦截器，增加jwt身份校验`（274 文件，+29033/−7432） |
-| `main` | 已快进到同一个提交并推送（`b94fed7 → 2a75c4d`） |
-| 旧分支 | `refactor/arch-stage1`（5e65364，本次提交的父）、`v4-update`（更早的 WIP），都保留没动 |
+**384 人 × 30 分钟不可持续（同日 3 次尝试 9 轮全部失败）**：第一轮跑到 17 分钟（1017 s）时可用内存由 167 MiB 降到 ~101 MiB 触发 `available-memory-under-100MiB`，**同期 CPU 仅 0.75–0.80、Hikari 排队 0**（不是 CPU），该轮 244,178 请求中 56 次失败；此后 mysqld（RSS 631 MiB）与 java（RSS 477 MiB）常驻不释放，整机可用内存再没回到 100 MiB 以上，320/256 的回退轮全部在起跑线被同一保护停掉（不代表这两档不行——300 秒档已两次通过）。外推约 3.7 MiB/分钟：即使重启把可用内存还到 250 MiB，384 人 30 分钟也只剩约 10 MiB 余量。**要上 384×30 分钟需先扩容内存（2–4 GB）或压缩 mysqld 常驻内存并给 JVM 明确 `-Xmx`，复跑前确认 `available ≥ 250 MiB`。** 按操作者决定本次未改动线上环境（未重启服务、未调 MySQL/JVM 参数），9 轮失败记录保留。`game.log` 已 542 MiB 且未轮转，建议加 logrotate。
 
-**网络**：这台机器访问 GitHub 必须走本机代理 `127.0.0.1:7897`（已配在 git 全局）。
-`git -c http.proxy= -c https.proxy= ...` 是给**本地 curl**用的（绕开代理），对 GitHub 反而连不上。
+**360 人 × 30 分钟：只重启应用不够（同日 20:35 起实测）**：`systemctl restart mahjong` 把可用内存从 103 → 366 MiB、java RSS 467 → 242 MiB、堆 committed 216 → 62 MB（10 秒恢复健康）。但随后 360 人（90 桌）那轮：**第 1 次未预热在 16 秒被 CPU 保护停掉**（应用只启动 15 秒就开压，CPU 在登录阶段已 0.88–0.93 → 冷启动无效轮）；预热 16 桌 60 秒通过后重跑，**第 542 秒（9 分钟）被 `available-memory-under-100MiB` 停止**，该轮 121,841 请求 0 失败、**CPU 仅 0.72–0.83**，但 P95 由 29 ms 恶化到 259 ms、max 3,529 ms。内存账：重启后 366 MiB → 准备阶段 80 秒后 179 MiB（冷 JVM 重建工作集：堆 committed 62→163→181 MB、线程 46→226→320）→ 稳态约 2.4–3 MiB/分钟 → 第 9 分钟撞 100 MiB 线。**结论：重启只买到一次性内存，冷进程会被第一个大档位吃回去；360×30 分钟需要启动时 ≈370–380 MiB 可用且 JVM 已热，必须做结构性回收（mysqld ~200–300 MiB：`performance_schema` 调小、`max_connections`、`table_open_cache`、`innodb_buffer_pool_size`）或加内存。** 按"失败后停止"，三轮序列只跑了 1 轮。
 
-**`.gitignore` 已重写为 UTF-8**（原来是 GBK/UTF-8 混编，中文注释全是乱码）。以下不入库：
-`node_modules/`（4000+ 文件）、`HainanMaJhong/docs/probe-*.png` 与 `ui-*.png`（探针截图，可重跑生成）、
-`back/*.jar`（旧版参考 jar 44MB，只在本地对照）、`.env`、`HainanMaJhong/game_log.txt`。
+**2026-10-14 21:10 已在线压缩 mysqld 内存**（依据实测：缓冲池命中率 99.9999%、31 天物理读仅 20 MB、磁盘临时表仅 1 次、最大连接 14、无 MyISAM 表）：新增 `/etc/mysql/mysql.conf.d/zz-mahjong-memory.cnf`（`performance_schema_digests_size`/`history_long_size` 10000→1000、`max_digest_length`/`max_sql_text_length` 1024→256、`innodb_buffer_pool_size` 128M→96M 且 `chunk_size` 128M→32M、`key_buffer_size` 16M→4M、`max_connections` 151→60、`table_open_cache` 4000→1000、`temptable_max_ram` 1G→64M），`mysqld --validate-config` 通过后 `systemctl restart mysql`（**2 秒**）。效果：**mysqld RSS 644→354 MiB、P_S 内存 542→322 MB、整机可用内存 129→430 MiB**。验证无性能回归：16 桌 60 秒 A/B 中 list-v2 P95 36.7→28.6 ms、握手 P95 249→51 ms、P2 参与索引路径单次成本 0.42 ms 不变、物理读仅 +119 页、磁盘临时表与表缓存溢出均为 0；唯一变慢的是兼容旧接口的 `JSON_CONTAINS` 全表扫描（因 `game_sessions` 由 1,606 涨到 2,964 行，属数据增长）。回滚：删除该 cnf 并重启 mysql（约 2 秒）。改前备份 `/root/mahjong/backup-precnf-20261014-211015.sql.gz`。`log_bin` 未动。
 
-**仓库里有两份 README、两份 APK，别搞混**：
+**2026-10-14 晚容量结论修正（mysqld 压缩之后，全部"失败后停止"）：持续负载的台阶是 320 人。** 400 人（100 桌）第 113 秒被 CPU 保护停（0.92/0.96/0.93 连续三拍，28,204 请求 0 失败，内存余量 384 MiB）；384 人（96 桌）第 151 秒被停（CPU 峰值 0.98、6/41 采样 >0.9，36,324 请求 0 失败，内存 362–394 MiB）——**`ladder-384-96tables` 那次 300 秒"通过"是临界通过**（峰值 0.92、3 个 >0.9 但不连续），长时跑必然被咬住；**320 人（80 桌）3 轮 × 900 秒全部通过**（每轮 180,000 请求 0 失败，CPU 均值 0.66、峰值 0.91–1.00 但 >0.9 仅 1–2 个采样、从不连续三拍，内存最低 346 MiB）。**内存已不是约束（负载期可用 ≥346 MiB），当前瓶颈是 2 vCPU 上的计算成本**：线上按 320 人/80 桌作为可持续并发上限。**400 人是"当前版本未通过"，不是"必须加 CPU"**——384 的 300 秒通过是临界通过、拉到 20 分钟就在 151 秒被 CPU 保护停，说明这一版的计算成本偏高；广播序列化复用、共享定时器、快照/监控开销削减能否把 400+ 拉回可持续区间仍待实测。加 vCPU 是最确定但代价最高的一条路。
 
-- `README.md`（**根目录**）—— 2026-09-24 由用户通过 GitHub 网页上传（同一提交还上传了根目录的
-  `jiangpahnmj.apk`）。里面也有一节「代码结构」，但措辞偏旧。
-- `HainanMaJhong/README.md`（**模块**）—— **权威版**：代码结构、牌张下标、番型、WebSocket 协议、
-  部署到云服务器（systemd / nginx 片段）。**改文档改这一份**。
-- APK：根目录那份是网页上传的留档；`HainanMaJhong/src/main/resources/static/apk/jiangpahnmj.apk`
-  才是 `/download/app` 真正下发的一份（`.env` 的 `APP_APK_PATH` 可指向服务器上的外部文件，换包不用重打 jar）。
+**2026-10-16 压测工具判据修正（未匹配广播伪影）：已修并按用户建议复验通过。** 起因：第 2 组阶梯被"未匹配广播率 2.344‰ > 1‰"判失败而中止，而协议序号 273 万帧零缺口 → 判定该计数为**工具跨连接记账伪影**（4 条连接共享 `pendingDiscards` 表但各自维护 `ordinal`，任何人出牌广播都会扰动别家的键）。**修法（1+3）**：① 新增配置键 `maxSequenceGaps`（默认 0），`s.pass` 改用 `s.sequenceIntegrity`（协议序号缺口/重复/缺帧），`unmatchedBroadcastAcceptance` 标记 `gating:false`+`note` 降级为信息项；② 记账改为按 **`(局,座位,牌) 第几次`** 关联（每条连接各维护 `seenDiscards`/`bookedDiscards`，因广播顺序一致而必然一致），消除跨连接同步依赖。改动文件：`online-capacity-retest.mjs`、`test-config.mjs`、`run-capacity.mjs`；新增说明文档 `docs/性能测试工具已知偏差.md`（含伪影反证、429 重试的耗时偏差、清理开销、输出目录复用秒退、`rpsPerTable ≤ 5`），并从 `docs/README.md` 与本仓 README 索引。**复验**：4 桌冒烟 `pass=True`、每房 172–283 个广播样本（P95 22.5–23.8 ms，**广播延迟测量未失效**）；**320 人/300 秒同档位由 False → True/True**（`sequenceIntegrity`：1,925,071 帧 gaps/duplicates/missing 全 0；未匹配率 2.102‰ 仅作信息项；60,000 请求 0 失败；80/80 房有广播样本、P95 均值 32.8 ms；收尾 0/80）。**历史轮次不改判**（2026-10-16 之前的"未通过"按当时门槛保留）。
 
----
+**2026-10-16 夜 额度策略修正：IP 层一律低于同组 global。** 原值 `RECORDS_IP_RPS/BURST=1200/200`、`LEGACY_RECORDS_IP_RPS/BURST=40/8` **都高于同组 global（800、20）** ✗ —— 四层准入是**串联 AND**，于是 IP 层在单来源场景**永远不会先拒**，等于未配置 ✗，且"单个来源可以吃光整份全局额度" ✓✗。已改为 **records IP `480/60`、legacy IP `12/3`**（均为 global 的 60%；login 的 `1/s < 3/s` 本来就合规，保持不变），同步改了三处：`TrafficProtectionProperties.java` 默认值、`application.yml` 占位符默认值、`.env.example`（含说明注释）。取值依据：① 必须低于 global；② **不能低到让压测工具自己先被拒**（工具单 IP 打 400 GET/s < 480 ✓，否则额度对照实验会被 IP 层污染）；③ 同 IP 需约 60 个玩家同时用满每人 8/s 才会触到（对宿舍/校园 NAT 留出余量）。**线上 `.env` 仍是旧值（1200/200、40/8），需改 `.env` + 重启才生效**——建议与下一轮压测一起部署。另注意本实现的**计量不对称**：全局桶按"接纳"计（不足时不扣 ✓），而 IP/用户桶按"尝试"计且**不回滚** ✗ → 全局饱和时可能误报为 `ip_rate`/`principal_rate` ✓，属已知归因偏差。（历史文档 `准入保护验证_2026-10-15`、`干净构建核验_2026-10-16`、`运行边界闭环证据_2026-10-16` 里的旧数值按"当时快照"保留不改写。）
+**2026-10-16 夜 额度对照首个可用结论（320 人、400 GET/s 读压力）。** 用"重启 → 渐进 ramp 预热 → 超载 320@5 → 同进程恢复"的序列跑了两个额度档：**300/30**：拒绝 **6.9%**（3,366/48,994，与"上限 300 vs 需求 320"的理论 6% 吻合）、已接纳服务端 P95 **244 ms**，但 CPU 均值 **0.801**、**21 个采样 >0.95** → **被 `0.95×60 秒` 护栏掐掉（约 2 分钟）**；**200/20**：拒绝 **30.3%**（36,349/120,001）、已接纳服务端 **P95 273 ms / P99 582 ms**、序号缺口 0、**收尾 0/80 异常**、CPU 均值 **0.575**、峰值 0.983、**仅 4 个 >0.95** → **发满 120,001 请求、跑满 300 秒** ✓。→ **结论：在 400 GET/s 读压力下，把额度压到 200/20（拒约三成）是唯一能把机器从 CPU 墙上拉回来的手段，且已接纳延迟仍达标；但这不是容量提升，只是"少收换已收延迟"。** 另发现**判据口径冲突**：工具 overload 判据要求"可测路由 ≥3 条且每条 ≥100 成功样本"，重度削峰下会话级战绩路由成功样本不足（只剩 2 条可测路由，且这两条 P95/P99 均达标）→ 该判据与重度削峰互斥，建议改为"对有 ≥100 样本的路由逐条判延迟、至少 1 条"（**未擅自改判据**）。同轮还复现了**间歇性收尾卡死**（`b200-ramp` 以 `round-drain-timeout` 结束，44,398 请求 0 失败但排空超时）——即历史文档记载的 P0 收尾问题在新包上仍会间歇出现，值得优先排查。详见 `docs/performance/private/boundary-plan-20261016/NIGHT-RESULTS-20261016.md`。
+**2026-10-16 夜 冷启动定量 + 同机监控代价（新包首次真运行后测得，必读）。** 新包 `1311b555` 首次真正上线后，额度切换所需的**重启**让 §4 基线档三轮里两轮被 CPU 护栏掐掉（`cpu-over-95-percent-for-60-seconds`：预热与 320@5 超载各在约 70 秒负载后停止），**只有恢复轮跑完 300 秒**。逐轮实测：**热态 320 人 @2.5**：CPU 均值 **0.482**、峰值 0.829、**>0.95 采样 0 个**、内存最低 376 MiB（**完整通过**）；**冷态首压 320@2.5**：均值 **0.840**、峰值 0.990、**13 个采样 >0.95**（被掐）；冷态 320@5：均值 0.686、峰值 1.000（被掐）。对照今天上午旧包 `44f94228`（监控不在同机）热态 320@2.5 均值 0.647/峰值 1.0。**结论**：① **新包没有变重**（热态 0.482 < 旧包 0.647），护栏连掐的根因是**冷启动惩罚 ≈ +0.36 CPU**；② 因此**任何重启后的测量都必须先用渐进 ramp 预热**（文档 §5 的 cold-ramp：每批 1 房、批间 1.5 秒、速率 0.5→1.25→2.5），90 秒直上目标档位的"废轮"在 0.95×60 秒护栏下**必被掐**；③ **监控搬同机的代价已量化**：空闲 CPU **+0.035**（0.020→0.059）、**内存 ~100 MB**（内存最低 479→376 MiB）、单次抓取 **1.14 MB / 8,374 行 / 每 10 秒**，建议把 `scrape_interval` 放宽到 30 s 或裁剪序列；④ **阿里云 agent（AliYunDun 等）是不受控 CPU 占用**（观察 2 进程各 6.7%），是"同画像有时被掐有时不被掐"的噪音来源，容量结论必须写明这一前提。**其余**：Grafana 面板已从 40 增至 **44 个**（新增 场次结束写入失败 / 准入拒绝率 / 准入在途与限流键 / Tomcat 线程池饱和，并把"失败比例"拆成"真失败／主动拒绝(429)"、与告警同口径；`generate-dashboard.py` 已同步），**需在 Grafana 里手动重新 Import**（API 401，用户改过密码）。
+**2026-10-16 下午 事故级发现：systemd 单元大小写笔误，导致"新包从未上线"，并因此造成一整轮错误结论。** `mahjong.service` 的 `ExecStart` 写的是 **`/root/mahjong/HainanMaJhong.jar`（小写 h）**，而历次部署（用户 16:16 构建的 `1311b555`、我 17:07 的部署、以及后续全部插桩补丁）写入的都是 **`/root/mahjong/HainanMaJHong.jar`（大写 H）** —— 服务从未加载过大写 H 那个文件，长期运行的是小写 h 那份**旧干净包 `44f94228`**（进程靠已打开 fd 持续服务，磁盘上 `HainanMaJHong.jar` 一度不存在）。**修复**：单元改为无歧义路径 `/root/mahjong/HainanMaJHong-1311b555.jar`，旧单元备份 `mahjong.service.bak-case`。**正确校验判据（务必改用）**：`sha256sum /proc/$(systemctl show mahjong -p MainPID --value)/fd/N`（进程实际打开的文件），**而不是**磁盘文件 SHA + 健康检查 —— 后者在"旧进程仍在服务"时是假阳性，我此前多次据此误报部署成功。**连带结论**：① 文档 §6"监控计数器在启动时注册为 0"**是对的**，`mahjong_room_session_close_failures_total{application="HainanMahjong"} 0.0` 在新包真正运行后即可见（此前不可见只因那行代码从未运行）；② 我为排查它所做的隔离复现逐一排除了 Micrometer 丢名、MeterFilter 拒绝、复合注册表后期绑定、无标签计数器、字节码/类加载等假设，**根因与这些全无关**；③ 12:59–14:11 的第 1 组长测与第 2 组超载/恢复**跑在小写 h 的 `44f94228` 上**（结论对 `44f94228` 有效，我当时的表述"干净包 44f94228 已部署"恰好为真）；④ **新包 `1311b555` 首次真正运行是在 17:36**，文档 §6 的小规模收尾验证已在新包上重做通过（8 桌 120 秒：`pass/p2Pass=True`、`measurementVersion=3`、2,401 请求 0 失败 0 跳过、接口最慢 P95 37.8 ms、收尾 0/8 异常、初末字段 `initialSessionEnded/endStateSamples/sessionEnded` 齐全）；⑤ 建议清理同目录大小写孪生 jar 并统一命名，避免复发；⑥ 全部临时插桩源码已还原（`CapacityMetrics.java` 恢复 146 行原样），服务器临时探针产物已清理。
 
-## 2. 架构速览
+**2026-10-16 三组闭环证据（干净构建包 `44f94228…` 部署后实测）：第 1 组通过，第 2 组一半，第 3 组除"送达"外完成。** 详见 `docs/运行边界闭环证据_2026-10-16.md`。**部署**：干净包 12:41:20 起、12:41:37 健康（15 秒），回退对象 `jar-backup-20261016-124120.jar`（旧包 `c0d10e9c…`）；线上现运行干净包、active。**第 1 组 ✅**：同一进程两轮各 1800 秒、320 人压力画像：**各 360,001 / 360,000 请求、0 失败**、最慢接口 P95 43.6/50.8 ms、四家广播 P95 28.3/33.3 ms、结算 8,601/8,573 局、房间 failures/在途弃牌/跳号全 0、**未匹配率 0.355/0.365‰**、收尾 0/160 异常；CPU 均值 0.647、内存 ≥479 MiB、护栏未触发。**顺带测到冷启动**：重启后首压 320 **70 秒即触发 `cpu-over-95-percent-for-60-seconds`**（牌局期 0.96–0.99 连续 13 采样 >0.95，13,949 请求 0 失败），预热后同档 CPU 均值 0.702 → **冷启动惩罚 ≈ +0.28 CPU**；登录阶段仅 0.09–0.32（登录闸门有效）。**第 2 组 ⚠️**：(a) 阶梯被工具门槛中止（未匹配率 **2.344‰** vs 1‰；同档 1800 秒窗口仅 0.355‰ → 反推未匹配绝对条数恒约 150 条，**是固定启动瞬态、随窗口稀释、不随负载增长**；另有 1/80 房 `sessionEnded=False` 的记录一致性观察项）；(b) 512 人 @5 请求/秒/桌（640 rps）：**Tomcat 200/200 打满约 20 秒、CPU 0.92–0.99、有序拒绝 2,291 次（23%）**、Hikari 排队 0，突发后**完全恢复**（CPU 0.12–0.44、Tomcat 0）；(c) 512 人 @4（512 rps）：**拒绝 7,939 次（约 31%）**，但**已接纳请求的服务端平均延迟 21 ms → 337 ms（16 倍）**、Tomcat 峰 200、Hikari 排队峰 37 → **"拒绝率上升时已接纳延迟仍达标"不成立**；(d) 降载恢复：拒绝零增长、Hikari 排队 0、Tomcat 0、CPU 0.03–0.05、320@2.5 窗口 60,001 请求 0 失败 P95 49.3 ms ✓。**测量陷阱（我方引入，须记住）**：给工具加的 429 重试会把 `Retry-After` 等待计入 `res.ms`，工具报的 P95≈9.9 秒是客户端退避而非服务端延迟；判定已接纳延迟必须用服务端 `outcome="success"` 的 sum/count。**第 3 组 ⚠️**：`MahjongHttpSlow` 于 **14:54:20–15:12:50** 准时触发（两次超载窗口）✓；`MahjongHttpErrors/Burst` 13:30–15:20 持续，因**把 429 算作失败**（需按 outcome 排除 `rate_limited`）；**送达 ✗：Alertmanager = 0**；**回退** `44f94228→c0d10e9c` 健康 15 秒、**总 107.4 s**、回退后业务 pass=True/4 局；**前滚** `c0d10e9c→44f94228` **总 17.4 s**、前滚后业务 pass=True/4 局（**回退比前滚慢 6 倍，差异在停机阶段——回退耗时不是常数**）。**结论**：跨边界表现从"不可控"变为"可控可复现"（有序拒绝、快速恢复、双向回退可执行），但**容量边界未被移动**（超载约 2 倍时延迟仍劣化一个数量级），且**"告警送达到人"仍缺**。
 
-### 后端 `HainanMaJhong/src/main/java/hainanMahjong/`（18 个包）
+**2026-10-15 准入保护（登录/战绩削峰）验证：保护按设计工作，但初值额度会造成重试风暴崩溃；冷启动是更大的风险。** 部署 jar SHA `c0d10e9c…`（9 类补丁编译 + `application.yml`），`.env` 追加 25 项额度（备份 `/root/env.bak-starter-*`）。**行为验证精确命中配置**：60 并发登录 → `200:1 / 429:59`（`Retry-After: 2`）；200 并发战绩（同一用户）→ `200:8 / 429:192`（`outcome=principal_rate`）；**320 账号按 1.1 s 限速登录 → 320/320 成功、零 429**（约 6 分钟）。指标 `mahjong_admission_requests_total{group,outcome}`、`mahjong_admission_inflight`、HTTP 过滤器 `outcome="rate_limited"` 均可用。**压测工具两处修补**：准备阶段并行 legacy 读被 `LEGACY_RECORDS_MAX_CONCURRENT=2` 拒 → `initial-record-list-failed`；已为**幂等 GET** 加 `Retry-After` 退避重试（`TEST_429_RETRIES` 默认 4、带抖动，写请求不重试），z2 实测 358 次重试后 0 失败。**512 人档四方对照（压力画像）**：R1 保护关闭·热实例 = 96,001 成功/P95 229 ms/在途 94；**R2 保护开启·初值(8 并发)·冷实例 = 重试风暴崩溃**（7,504 成功/**499 个 429**/499 失败、P50 2.5 s、P95 11.6 s、在途 **1,659**、建连 9 s）；**R3 放大到 48 并发·冷实例 = 仍崩**（8,000 成功、仅 2 个 429、P50 3.1 s、**建连 20 s**、在途 2,035、CPU 峰 0.97 但仅 6/181 采样 >0.9 → 线程占满/accept 队列堵死）；**R4 放大到 48·热实例 = 与 R1 完全一致**（96,001 成功、0 失败、P50 112 ms、P95 261 ms、在途 115）。**结论**：① 保护无容量损耗（R4≡R1）；② `RECORDS_MAX_CONCURRENT=8` 在压力画像下导致 ~70% 拒绝并因客户端重试形成**正反馈崩溃**——建议改为 48 并同步调整 `RECORDS_RPS=800/BURST=100`、`RECORDS_USER_RPS=8`、`RECORDS_IP_RPS=1200`、`LEGACY_RECORDS_MAX_CONCURRENT=8`，**削峰优先用速率而非并发上限**；③ **冷启动（JIT+战绩缓存）才是崩溃主因**：重启后首个 512 档会 20 秒建连，**必须先用目标档位跑 60–120 秒废轮**；④ 保护闸 `0.9×3` 过灵敏（z2 在 CPU 均值 0.366 时被掐），建议改 `0.95×60 秒` 或降级为告警。详见 `docs/准入保护验证_2026-10-15.md`。
 
-| 包 | 干什么 |
-|---|---|
-| `config/` | `WebMvcConfig`（注册拦截器 + HTML 不缓存）、`WebSocketConfig`（`/room`、`/game` 两端点）、`MybatisPlusConfig` |
-| `interceptor/` | `JwtInterceptor`（身份 + **单点登录**判定 + 401/4011 口径）、`AuthorizationInterceptor`（角色） |
-| `controller/` | `AuthController`（登录/注册/改昵称改密/刷新/登出）、`RoomController`（`/pending`、`/check`）、`RecordsController`、`AppDownloadController`、`DebugController`（**仅 local profile**） |
-| `service/` + `impl/` | `RoomService`（建房/加入/解散/踢人/预检）、`GameEngineService`（跑把）、`GamePushService`（唯一发送出口）、`RecordsService`（战绩装配）、`TokenService`、`UserService`、`RoomSnapshotService`、`RoundPersister`、`SchemaInitializer`（启动幂等建表）、`MultiPlayerRoomService` |
-| `engine/` | `RoomManager`（一把的完整流程）；`bot/`、`human/`（`HumanPlayerController` 等人应答）、`rule/`（吃碰杠胡判定策略）、`port/`、`model/` |
-| `room/` | `Room`/`Member`/`RoomRegistry`（注册表 + 会话绑定）/`SwitchingController`（机器人托管切换）/`State` |
-| `rules/` | `HuLib`（查表判胡）、`HainanFan`、`HainanScore`（算分 + 包三道/包四道）、`HainanConfig`、`DealerFlow` |
-| `mapper/` + `repository/` | MyBatis-Plus（注解动态 SQL 必须 `<script>` 开头）、`RoomSnapshotRepository`（Redis 房间快照） |
-| `websocket/` | `RoomWebSocketHandler`、`GameWebSocketHandler`、`WsAuthHandshakeInterceptor`（握手鉴权 + 单点登录） |
-| 其它 | `common/`（`Result`/`PageResult`/`CacheKeys`）、`exception/`（`GlobalExceptionHandler` 统一 `{code,message,data}`）、`dto/`/`vo/`/`pojo/`/`properties/`/`utils/`/`annotation/` |
+**2026-10-15 nginx 修复 + 复测：480 人零失败通过，512 人实质判据全过（仅差工具伪影门槛 0.001 个百分点），CPU 在这两档成为峰值约束。** 已实施（备份 `/root/nginx.conf.bak-20261015-202443`）：`worker_connections 768 → 4096`、新增 `worker_rlimit_nofile 65535`、nginx systemd `LimitNOFILE=65535`（drop-in）；`nginx -t` 通过并重启生效；**`mahjong.conf` 的 WS 升级配置未动**（upstream keepalive 留作可选，因需与 `Connection ""` 和 WS 升级头共存、风险高）。**复测**：**480 人通过**（90,000 请求 **0 失败**、P95 139 ms、P99 210 ms、广播 P95 54 ms、CPU 均 0.58/峰 0.96）；**512 人**（96,001 请求 **0 失败**、P95 229 ms、P99 299 ms、广播 P95 91 ms、**CPU 峰 0.99、57/122 采样 >0.9**）唯一失败判据是 `unmatchedBroadcastRate` **1.01‰ vs 门槛 1.000‰**（工具伪影），实质判据全部满足。**修复后极限阶梯**（压力画像）：352/384/400/448/480 全通过，512 实质通过 → **应用侧极限在 512 附近，瓶颈是短时 CPU 峰值打满 2 vCPU**（均值仅 0.59、内存 482 MiB 仍有余量）；**测量上限已到工具边界**（账号 512 个、`tables ≤ 128`），再往上需补账号并放宽上限。→ 此前"448 是极限"的结论**由 nginx 默认配置造成**，已解除。后续提容量方向：压 CPU 峰值 + 读接口缓存，而不是加带宽/连接池。详见 `docs/极限压力测试_2026-10-15.md`。
 
-### 前端 `HainanMaJhong/frontend/`
+**2026-10-15 极限压力测试（压力画像 2.5 请求/秒/桌，保护放宽为 0.97×60 秒）：应用侧极限 448 人，480/512 被 nginx 默认配置挡住。** 新写 `monitor-extreme.mjs`（与 `monitor.mjs` 采样口径/字段完全一致，仅把强停阈值从 `0.9×3 采样（15 秒）` 改为可配的 `0.97×60 秒`、内存 <80 MiB）+ `private/run-extreme.ps1`（直调 harness），未改原工具。**完整阶梯**（每档 300 秒）：**352 通过**（CPU 均 0.62/峰 0.89、P95 47 ms、0 失败）→ **384 通过**（0.69/0.96、4/74 采样>0.9、P95 76 ms）→ **400 通过**（0.71/0.96、6/74、P95 90 ms、P99 175 ms、广播 P95 40 ms、0 失败）→ **448 通过但首次劣化**（CPU 均 0.76/**峰 0.98**/**44/75 采样>0.9**、P95 134 ms、P99 204 ms、**73 个失败含 HTTP 500**）→ **480 / 512 直接挂在 WS 握手 500**（`ws-open-Unexpected server response: 500`，此时应用 CPU 仅 0.27–0.31）。**根因（日志原文）**：`/var/log/nginx/error.log` 42 条 `[alert] ... 768 worker_connections are not enough while connecting to upstream`（含 `/game?...&push=full` 的握手请求）；`/etc/nginx/nginx.conf` 的 `worker_connections 768` + worker `Max open files` 软限 1024；每条 WS 占 nginx 2 个槽（客户端+upstream），480 WS ≈ 960 槽 + 250 rps 轮询 keepalive ≈ 400 槽 → 撞单 worker 上限。应用侧同时段**零异常**、HikariCP **零超时**、进程 fd 仅 27。**三条结论**：① 之前"384 在 151 秒失败、400 在 113 秒失败"是**保护策略造成的假失败**（0.9 连 3 采样=15 秒就掐，而 400 档 CPU 均值仅 0.706、判据全过）——建议强停阈值改为 **0.95×60 秒**或降级为告警；② 应用侧极限在 **448**（CPU 峰值 0.98、内存仍 467 MiB 有余量）；③ **当前部署的天花板是 nginx 默认配置（448），不是应用**。**建议修复（待确认，此前指示"暂不扩大连接池/带宽"）**：nginx `worker_connections` 768→4096、加 `worker_rlimit_nofile 65535`、nginx systemd `LimitNOFILE` 软限 1024→65535、upstream 启 keepalive；然后复测 480/512。注意**账号只有 512 个、工具上限 128 桌=512 人**，再往上需先补账号与提高上限。详见 `docs/极限压力测试_2026-10-15.md`。
 
-- `src/views/` Login / Lobby / Room / GameTable / Records；`src/components/` layout·lobby·table·tile·records
-- `src/stores/game.js` 牌局状态机（WS 消息 → 状态 → 界面）；`src/game/` tiles·socket·audio·preload·assets·roomConfig
-- `src/composables/useLandscapeScale.js` 虚拟横屏（旋转 + 缩放 + `--design-h` 紧凑设计高）
-- `src/api/api.js` 接口封装（401 续期、**4011 被顶下线**、错误口径）；`src/styles/` base.css + landscape.css
-- 构建产物**直接写进** `../src/main/resources/static/`，必须入库（服务器上没有 Node）
+**2026-10-15 容量画像修正（重要，推翻此前"320 人是上限"的结论）：容量墙主要是测试画像造成的。** 起因是追查"320 档 CPU 压在保护阈值"时先做 CPU 分解（java 0.84 / **mysqld 0.33** / redis 0.05 / iowait ≤0.7%），再做**轮询开关对照**：320 人 300 秒，`rpsPerTable` 2.5→0.5 使系统 CPU **0.708→0.396（−0.31 核，−44%）**、java 0.84→0.44、mysqld 0.33→0.11，q1 被 CPU 保护停而 q2 通过且**结算局数 +28%（1,178→1,503）**。**核对前端源码确认：`frontend/src` 没有任何周期性 HTTP 轮询**（`setInterval` 只有本地倒计时/时钟），战绩接口均为按需调用；压测工具自述是 "aggressive records load 2.5 req/s/table"，即**为压 P2 读路径而设的压力档**。**真实画像（rps=0.1）重跑梯级（300 秒，full）**：**320 通过（CPU 0.35/0.79、未匹配 0.05%）→ 384 通过（0.40、0.07%）→ 400 通过（0.36、0.08%）→ 448 失败**，448 的唯一失败判据是 **`unmatchedBroadcastAcceptance` 0.147% > 0.1% 门槛**（CPU 仅 0.40/0.88、HTTP 0 失败 P95 44.8 ms、112 房清理全干净、0 客户端失败、0 在途弃牌）。**据此**：① 此前 384/400 的"失败"是在压力画像下发生的（151 s / 113 s 被保护停），真实画像下均通过，"400 人必须加 CPU"应改为"**在 2.5 req/s/桌 的读压力画像下未通过**"；② **新的绑定约束是丢帧率而非 CPU**，它随并发单调上升（0.05→0.07→0.08→0.147%），与"delta 模式间歇收尾卡死"同族（两次失败轮未匹配率 0.32–0.33%）；③ CPU 远未饱和，448 人只用 0.40，内存（469 MiB@448）会先成为约束。**下一步（已建议，待确认）**：把 448 人档跑在 **Phase 1 之前的 jar**（`jar-backup-20261015-134059.jar` / SHA `121d69eb…`）做丢帧对照——若未匹配率回到 0.05–0.08%，则 Phase 1 的事件合并/延迟发送引入丢帧，应回退或修好再谈 Phase 2。另建议：两套画像分开记录（生产画像看容量、读压力档看 P2 极限）；前端补 `seq` 缺口检测 + 重同步（丢帧会导致牌河缺张）。详见 `docs/容量画像修正_2026-10-15.md`。
 
----
+**2026-10-15 CPU 真实去向（B 计划首轮实测）：iowait 假设证伪，MySQL 是此前被忽略的重要消费者。** 新增 `/root/cpu-split.sh`（5 秒采样：Micrometer 口径 defA=1−idle/total vs 排除 iowait 口径 defB，并逐进程拆 java/mysqld/redis）。**320 人档 261 个采样**：登录期（rooms=0）defA 0.752 / iowait 0.1% / **java 1.42 核（峰 1.67）/ mysqld 0.03**；**牌局中 defA 0.710 / defB 0.703 / iowait 0.7% / java 0.84（峰 1.10）/ mysqld 0.33（峰 0.40）/ redis 0.05**；空闲 0.046。→ ① **iowait ≤0.7%，`system_cpu_usage` 就是真实 CPU**，"重启后 MySQL 缓冲池冷→iowait 抬高指标导致保护误判"的猜测**不成立**；② **320 个账号的 bcrypt 登录把 Java 推到 1.42 核（2 vCPU 的 71%）持续约 20 秒**，这是"重启后首次 320 轮常挂"的直接原因；③ **MySQL 吃 0.33 核（软件 CPU 的 28%）**，同期 HikariCP **≈280 次 DB 操作/秒**（84,283 次获取/5 分钟、平均持有 4.96 ms、零等待零超时），调用量集中在**轮询类读接口**（`/api/v2/records` 34,482、`/overview` 17,241、`/api/room/pending` 18,070 per 5 min）；④ 软件合计 java 0.84 + mysqld 0.33 + redis 0.05 = **1.22 核/2 vCPU**，与系统口径 0.71 一致。牌局中 defA 分布：**167/187 落在 0.7–0.8，0 个 >0.9**，但 m2-r1/n1 实测出现过连续 0.94/1.00/1.00 → 同档位存在 0.71 与 0.85+ 两个区间（受 JIT/GC/负载相位影响）。**下一步（最可能一次降 0.1 核以上、且不改协议不动前端）**：做"轮询开关"对照（320 人 300 秒，正常轮询 vs 降到 1/5），量化轮询在 mysqld 0.33 与 java 0.84 中各占多少。**320 档验收现状**：n 系列 3×30 分钟两轮尝试均在 215–332 秒被 CPU 保护停（登录期 0.85 + 牌局 0.71 摩擦阈值）；**修正实践：预热必须用目标档位本身**（16/32 桌不会编译 80 房/320 人规模的代码路径），重启后第一轮应视为"废轮"。
 
-## 3. 环境与运行
+**2026-10-15 Phase 1 总体判定（k 系列交替 3×delta/3×full 后）：功能与流量收益成立，但 CPU/容量收益 ≈ 0，且间歇收尾缺陷未抓到现场。** k 系列（320 人 300 秒，预热 16 桌）：k2 full 通过（CPU 0.62）、k3 delta 通过（0.59）、k5 delta 通过（0.64）、**k1/k4 在登录期被 CPU 保护停、k6 在 294 秒被 CPU 保护停（CPU 均 0.77、内存最低 354 MiB）**；触发器 v2（房间数 ≥60 且速率 <50 连续 15 秒才判定）**0 次真卡死命中**，并纠正 v1 的 3 次命中是收尾拆除阶段误报。**CPU 汇总（全部有效 320 轮）：delta 7 轮均值 0.617 vs full 3 轮均值 0.613 → 差异 0.004 个核，噪声内**；结合 256 档 −0.02 核，**判定 Phase 1 的 CPU 收益 ≈ 0——瓶颈不在消息条数，而在请求处理/JSON 构造/引擎**。**运营发现（更重要）**：320 档在这台 2 vCPU 机器上是"临界可持续"——**k 系列 6 轮 3 轮被 CPU 保护停**，登录风暴本身即可短时冲上 0.9+，连续多轮后余量变薄；**换挡前必须重启应用**，且档位结论要在 fresh 进程 + 充分预热下取得。**建议**：① Phase 1 保持默认 `full`，不急于翻 `delta`（其价值主要是省带宽，却带间歇性收尾缺陷）；② 收尾缺陷复现率约 1/7，触发器 v2 已就位，建议随 3×30 分钟长测附带取证；③ **容量方向转向请求处理/JSON 分配侧**（`GC.class_histogram` 前后差 + 线程组 CPU + 针对性计数）。
 
-| 工具 | 路径 |
-|---|---|
-| JDK 17 | `C:\Users\ASUS\.jdks\ms-17.0.20.1-1`（**必须 17**，class 文件版本 61） |
-| Maven | `C:\Users\ASUS\tools\apache-maven-3.9.16\bin\mvn.cmd`（`-o` 可离线跑） |
-| Node / pnpm | pnpm 10.x（**npm 是 6.14，别用**） |
-| Python | `C:\Users\ASUS\AppData\Local\Programs\Python\Python39\python.exe`（装了 Pillow 11） |
-| Chrome | `C:\Program Files\Google\Chrome\Application\chrome.exe` |
-| mysql 客户端 | `C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe` |
+**2026-10-15 第三轮（320 人 ×2 模式 ×2 轮）结论：流量收益成立，但 CPU 收益远低于预期，且 P0 缺陷间歇复现。** 交替跑 delta→full→delta→full（80 桌/320 人/300 秒）：**delta r1 通过（drain 21 s、系统 CPU 0.57、进程 0.34）、full r1 通过（22 s、0.61、0.36）、delta r2 收尾失败（drain 120.1 s、0/80 冻结）、full r2 通过（21 s、0.61、0.36）**。流量两轮合计 **发送 −46.3%（2,091,231 vs 3,891,794）、字节 −36.4%（223.3 vs 350.9 MB）**（`turn` 0、`counts` −96%、`board` 21,636 次/9.6 MB 仍为快照代价）。**CPU 实际只降 0.02–0.04 核（预期 −0.08）**——说明发送路径的边际 CPU 成本远低于从 `mahjong_ws_send_seconds_sum` 推得的估计（后者含 socket 阻塞等待），**剩余 CPU 大头在请求处理/JSON 构造/引擎，不在消息条数**；且周期快照构造（≈64 次/秒）+ 50 ms 兜底轮询（≈1,600 次/秒）抵消了一部分节省。**P0 未完全修复**：320 档 delta 2 轮 1 次复现（0/80 冻结、120 s），失败轮**未匹配广播率 0.327% 超 0.1% 门槛**（通过轮 0.045–0.053%），两者疑同源（推送延迟/丢弃）；卡死窗口内 `推送兜底发送失败=0`、`重发待决请求失败=0`、`ERROR=0`，**无异常线索**。**下一步取证计划**：在 drain 开始后 +10/+40/+90 s 抓 `jcmd Thread.print`（找 BLOCKED 与引擎↔flusher 互等）+ 采样 `mahjong_ws_resync_total{reason="periodic"}` 判断"flusher 卡住还是引擎卡住"（复现率约 1/2，连跑 4 次 delta 320 即可）。**产品决策点**：若只要省带宽可保留并修缺陷；若要提容量，应转向请求处理/JSON 分配侧。
 
-- **开发库/Redis**：`192.168.133.128`（本机 VM，**经常是关着的**；连不上时应用照常启动，只是持久化打警告）
-- **凭据**：都在 `HainanMaJhong/.env`（`DB_PASSWORD` / `REDIS_PASSWORD` / `JWT_SECRET`）。
-  **不要把密码写进任何文档或提交**；`.env.example` 是模板，`.env` 已被 gitignore。
-- 本地启动：`run-local.ps1`（读 `.env` 并探活 DB/Redis），或
-  `DB_PASSWORD=… REDIS_PASSWORD=… JWT_SECRET=… java -jar target\HainanMaJhong2-1.0-SNAPSHOT.jar`
-- 云端启动：`SPRING_PROFILES_ACTIVE=prod` + `.env`（见 §6.1）
+**2026-10-15 Phase 1 修复后复测：通过，可继续推进。** 修复内容（操作者实施）：服务级单例 `pushFlusher`（1 条守护线程 `mahjong-push-flush`，每 50 ms 轮询 `flushIfDue()`）、结算/生命周期消息绕过延迟并先排空动作帧、局末排空屏障、定时 flush 只发脱离房间对象的快照、去掉动作次数触发与局末额外快照；工具新增 `pushProtocol` 协商校验、`lastSeq` 跳号检查、未匹配广播率门槛（0.1%）。部署 jar SHA256 **`ae77a509…`**（启动 12 秒）。**验证阶梯**：1 桌 delta drain 21 s 通过（原 P0 不再复现）→ 4 桌两模式通过（`turn` 3,596→0、`counts` 7,736→324、`board` 856→248、未匹配 0）→ **256 人 300 秒两模式均 `pass=True`**。**A/B（256 人 300 秒）**：delta vs full —— 发送 **829,066 vs 1,543,157（−46.3%）**、字节 **88.4 MB vs 139.0 MB（−36.4%）**、drain 22 s vs 24 s、结算 1,198 vs 1,207、最慢 P95 34.4 vs 37.6 ms、**未匹配率 0.034% vs 0.049%（均 <0.1% 门槛）**、**CPU 均值 0.50 vs 0.52（−0.02 核，仍在噪声内）**、内存最低 612 vs 586 MiB。**仍存差距**：字节 −36.4% 低于目标 −52%，主因是 `board` 周期快照仍占 7.5 MB（delta 字节的 8.5%）与每动作 `hand`（Phase 2 范围）。**下一步建议**：320 人 300 秒 ×2 模式 ×2 轮以分辨 CPU 收益（预期约 −0.08 核），再做 320 人 3×30 分钟。**测试方更正**：第一轮报告曾误判"`coins` 被合并挂起""`seq` 未实现"——核对被测包源码后均已撤回（`coins` 为直接发送；`seq` 在 `GamePushServiceImpl:178-180` 写入、`MultiPlayerRoomServiceImpl:193` 消费），错误源于只 grep 单文件即下"全项目"结论。详见 `docs/Phase1测试报告_2026-10-15.md`。
 
----
+**2026-10-15 Phase 1（WS 增量推送）测试结论：开关有效，但有阻断级缺陷，暂不能上线。** 已按工作区改动补丁式构建并部署（jar SHA `2541635c…`，启动 12 秒；备份 `jar-backup-20261015-*.jar`），用 `TEST_PUSH_MODE=full|delta` 做同条件对照。**① 开关有效**：delta 模式 `turn` 3,616→**0**、`counts` 7,752→936（−88%），发送/结算局 1,293→**802（−38%）**。**② P0 阻断**：delta 轮 **64/64 房间收尾卡死**（`roundDrainSeconds=120.1` 超时、0/64 冻结），同条件 full 轮 **23 秒正常收尾、pass=True**；窗口内牌局本身健康（1,200 局结算、0 客户端失败、`coins` 齐全）。机制定位：Phase 1 的事件合并（`GameEngineServiceImpl:766 queueEvent` 先 flush 上一条再挂起新事件，兜底 flush 依赖 `:777 onIdle`）导致**房间静默时最后一批 pending 事件（客户端据此冻结的 `coins`）没被 flush**。修复方向：给 flush 设最大延迟（50–100 ms 兜底定时）、结算类事件（`coins`/`end`/`hu`/`hand_start`）不参与合并、或让 `onIdle` 独立于"是否有待决 Prompt"。**③ P1 收益被自己吃掉**：`syncSeats:787` 的 `actionsSinceSnapshot>=10` ≈ 每 0.5–0.7 秒一次（实测 15 动作/秒/桌），导致 `board` 发送 256→**63,612 次**、字节 56 KB→**31.5 MB**，整体字节只 −12.6%（设计预期 −52%）；建议去掉动作触发、只留 5 秒定时 + 强制点。**④ P2 安全网缺失**：`GamePushProtocol.SEQUENCE` 定义了但**全项目未写入**，客户端无法检测缺帧（delta 轮未匹配广播 **796 vs full 104**），设计里的"缺口触发 resync"未生效。**⑤ CPU 数据本轮不可用**（delta 窗口含 120 秒卡死期，均值被拉低）。修复后重测清单：1 桌复现→4 桌对比→256×2→320×2→320 3×30 分钟。详见模块 `docs/Phase1测试报告_2026-10-15.md`。
 
-## 4. 验证（改完必跑，别靠肉眼）
+**2026-10-15 WS 增量推送协议设计评审（方案 A，已完成，未改代码）**：产出 `docs/WS协议增量推送_设计评审_2026-10-15.md`。核心结论：**可行，分两阶段**——Phase 1 取消 `counts` 每动作推送（把单位手牌张数折叠进 `draw/discard/meld/flower` 的 `handSize` 字段）+ 把 `turn` 折叠进同一批事件（`nextSeat`/`timeoutMs`）→ 发送量 −50%、WS 字节 −52%、约 **0.085 个核**；Phase 2 再把每动作 `hand` 降频 + 客户端自行推导手牌 + 周期对账 → 再 −9% 发送量、−16% 字节、约 0.015 核；两阶段合计 **≈0.10 核 ≈ 全机 8%**（加已上线的序列化复用共 ≈0.12 核 ≈9–10%，**仍不足以保证 400 人通过，必须实测**）。**关键可行性依据**：① 客户端 `frontend/src/stores/game.js` 的 `onDiscard`/`onMeld`/`onFlower` **已经在做增量维护**（牌河/副露/花不再需要全量）；② 压测工具 `online-capacity-retest.mjs` **完全不消费 `counts` 与 `turn`**、只在入房/重连等 `hand`，因此 Phase 1 对压测逻辑零影响，只需在握手 URL 加 `push=full|delta` 开关并利用其已有的 `messageCounts` 做对照。设计要求：握手参数开关（默认 `full`、配置项 `PUSH_DEFAULT` 灰度翻转）、混合房间按 session 属性分支发送（payload 仍只编码一次）、兜底全量时机（入房/重连/每局开始/**每 5 秒**/客户端 `resync`）、推送带 `seq` 做缺口检测、`resync` 计数按原因分类用于灰度观测漂移。风险与缓解、验收指标（同条件开/关 A/B：发送量、字节、CPU、P95/P99、广播确认延迟、结算局数/零和/暗杠不泄漏/四家送达）、回滚（服务端一键回 `full`）均已写入评审文档；**文末列了 5 个待操作者确认的开放问题（默认值、快照频率、`handSize` 口径、是否双写对照、Phase 2 是否做）**。**未获确认前不动协议代码。**
 
-```bash
-# 后端：38 个测试（判胡、房间拆解落库、动态 SQL、握手鉴权、单点登录踢人）
-cd F:\HainanMaJhong2\HainanMaJhong
-set JAVA_HOME=C:\Users\ASUS\.jdks\ms-17.0.20.1-1
-mvn -o -B clean package
+**2026-10-15 WS 推送量归属（第 1 项之后的下一步杠杆，已完成测量）**：给 `GamePushServiceImpl` 加**按消息类型的零扰动计数**（懒注册 Gauge）后，在 **256 人 300 秒**干净窗口（结算 1,209 局、324 秒）取得分布：**`counts`（每人手牌张数）37.6% 字节 / 1,642 次每秒、`hand`（本家手牌）16.4% / 422、`turn`（轮转）14.4% / 768**，三者合计 **68% 字节、59% 发送量**，而它们**都能由客户端已收到的 `draw`/`discard`/`meld`/`flower` 事件推导**；`request`（操作询问）9.6% 不可推导必须发；真实事件（discard/draw/meld/flower）21% 是最小集。**公共消息复用已是极限（1 编码 : 4 发送），去重无空间；降频/合并也只能省约 3%（`counts` 已是每房 1.5 秒一次）——要拿量级收益必须"不发"。** 外推 320 人可省约 **0.10 个核的发送路径 CPU**（+0.008 序列化）≈ **全机 8–9%**，是当前**不加 vCPU 的最大单项杠杆**（对照：第 1 项序列化复用仅 ≈0.024 核 ≈2%）。**代价**：这是协议契约变更，需**前端 + 压测工具（`online-capacity-retest.mjs` 会校验这些消息）+ 服务端三处同步改**，并保留周期性全量快照兜底与握手开关以便同条件开/关对照。**未获操作者确认前不动协议。** 另：`b4-typed-320` 在重启后仅 16 桌 60 秒预热即上 320 人，第 19 秒被 CPU 保护停（冷 JIT 约 0.5 个核），故干净窗口改用 256 人档取得。线上 jar（含计数）SHA `a74d1d32…`。详见模块 `docs/WS推送量归属_2026-10-15.md`。
 
-# 前端：构建 + 三项静态自检（牌编码 / 音频与预加载清单对磁盘 / 构建产物一致）
-cd frontend
-pnpm build
-pnpm check
-node tools/smoke.mjs                 # happy-dom 驱动交互链路，123 项
+**2026-10-15 优化项 1「公共广播序列化复用」已上线并完成对照（第 2 步第一个改动）**：`GamePushServiceImpl` 新增 `Encoded`（JSON + 字节数）与 `encodeOrLog`/`sendEncoded`，`broadcastGame`/`broadcastGameMasked`/`sendRoomInfo` 改为**惰性编码一次、多连接复用**（`sendJson` 单收件人语义不变；`delivery` 序号注入、`synchronized(session)`、发送顺序、暗杠 owner/others 隔离全部保留）；`CapacityMetrics` 新增 `mahjong.ws.serialize` 计时与 `...serialize.size`。**计数证据**：发送:序列化 由 **1.00 → 2.82**（序列化次数 **−64.5%**；320 人 300 秒窗口 1,940,910 次发送 / 687,643 次序列化），序列化 CPU 14.4 s → **5.11 s / 380 s**（省 ≈0.024 核）。**A/B（320 人 300 秒，a3 → b2）**：请求 60,001/0 → 60,000/0 全通过；rounds-v2 P99/max 72.3/436.7 → **60.9/225.1 ms**，在途峰值 62 → **20**，广播确认均值 26.6/23.5/23.6 → **24.1/21.7/21.9 ms**；分配 138.1 → **132.0 MB/s（−4.4%）**；**CPU 均值 0.61 → 0.63（噪声内）**。**结论：改动正确、无回归、收益符合设计但量级有限——不足以改变容量边界**（序列化仅占 WS 路径 7.2%）。构建方式为服务器上 `javac 17`（新装 `openjdk-17-jdk-headless`）对现存 jar 的 `BOOT-INF/lib` 补丁式编译；**首次部署因漏带内部类 `GamePushServiceImpl$Encoded.class` 启动失败，自动回滚生效**，补全并逐字节校验后上线。线上 jar SHA **`5b35fa32…`**（原 `121d69eb…`），备份 `/root/mahjong/jar-backup-20261015-134059.jar`，回滚=cp 备份+重启（约 15 秒）。**注意：线上 jar 是补丁式构建产物，与仓库 `release/` 旧构建不同 SHA，下次正式发布应用 Maven 完整构建并更新 SHA 记录。** 详见模块 `docs/广播序列化复用_2026-10-15.md`。
 
-# 真浏览器量像素（改布局必须跑）
-python ..\docs\browser-probe.py --wait 12000 --shot ..\docs\probe-table.png    # 桌面 115 项
-python ..\docs\mobile-probe.py --wait 16000                                    # 手机竖屏 127 项
-python ..\docs\mobile-probe.py --orientation landscape --wait 16000            # 手机横屏 97 项
-python ..\docs\mobile-probe.py --only table|history|settings|rule --shot x.png  # 只跑到某一屏出图
-```
+**2026-10-15 事故后处置与第 1 步热点归属（已完成）**：操作者装了官方 `ACS-Extension-swap_config` → **swap 4 GB 生效**（`/swapfile`、swappiness=20、已入 fstab）；另加**主机侧内存护栏** `mahjong-mem-guard.timer`（每 30 秒检查，连续 90 秒可用内存 <80 MiB 则重启应用，日志 `/var/log/mahjong-mem-guard.log`）与**日志轮转 200→100 MB**。随后按计划做热点归属（**全程无 JFR**，改用纯 `/proc` 线程 CPU 聚合 + `jstack` 栈分类）：**320 人 300 秒 5 次独立运行全部通过**（每次 60,001 请求 0 失败、CPU 均值 0.61–0.64、内存最低 366–428 MiB；无采样轮 P95 45.8 ms）。**CPU 归属（320 人稳态，JVM 自身 ≈0.81 个核）**：Tomcat 请求线程 **≈65%**、**`room-bind-<房间码>` 房间引擎线程 ≈25%（新发现：`GameEngineServiceImpl.java:115` 每房一条裸线程跑 `runBlock`）**、lettuce/Redis ≈8%、GC ≈2%、JIT 热机后 ≈0%。**方法学**：① 重启后冷 JIT 单线程可达 47–49% 一个核，**A/B 必须先预热**（本系列统一 16 桌 60 秒预热）；② 采样器会改变被测对象——`jstack` 每 5 秒把 320 人 P95 从 45.8 抬到 **140.8 ms**，优先用纯 `/proc` 采样。**仍未回答**：Tomcat 那 65% 内部分布（广播序列化/快照/监控/查询）需真 CPU 剖析——建议 async-profiler（需批准放 jar）或 JFR `settings=default`+`repositorysize=32m,disk=true` 仅 256 档 60 秒，或把计数合并进第 2 步的代码改造。**在操作者选定前不开始第 2 步代码改动。** 详见模块 `docs/热点归属_2026-10-15.md`。
 
-**跑的时候要知道的四件事**：
+**2026-10-15 11:51–12:25 线上实例冻死事故（已恢复，容量结论不受影响）**：为做"热点剖析"在未加 swap 的 1.6 GB/2 vCPU 实例上启用 **JFR `settings=profile`**（内存仓库默认无上限），并紧接执行了 **680 MB 的日志轮转**；随后 320 账号登录使**可用内存 40 秒内从 357 MiB 掉到 84 MiB**，应用管理端 11:50:57 起停止响应，`snapd`（11:54:44）与 `systemd-journald`（11:56:43）watchdog 超时被杀，**`sshd: pam_systemd ... Connection timed out`（11:59:52）证明 SSH 出不了 banner 是 `systemd-logind` 卡死**，非网络/云盾拦截；**无 OOM、无 I/O 错误**，日志于 12:01:26 完全停止，12:24:59 由控制台**硬重置**恢复。**责任在剖析操作方**：不得在本机使用 JFR profile 级录制，也不得在压测前做大批量日志轮转。复工核对：四个服务 active、`actuator/health=UP`、3 账号×16 请求全 200、`RECORDS_P2_READ_ENABLED=true` 与 MySQL 调参（96M/1000/60）均保留。**待操作者批准**：加 swap（P0，把"整机卡死"降级为"变慢"）、主机侧内存护栏（`MemAvailable<150 MiB` 连续 30 秒则重启应用或告警）、日志轮转改为 64–128 MB。剖析改用低开销手段（`jcmd Thread.print` ×3、`/proc/<pid>/task/*/stat` 每线程 CPU、`GC.class_histogram`、应用自带 Micrometer 指标）。详见模块 `docs/事故记录_2026-10-15_线上冻死与恢复.md`；`p9*` 四轮按约定保留并标注为"剖析引入的无效轮"。
 
-1. `smoke.mjs` 打完 `==== 全部通过 ====` **不会自己退出**（牌桌里有常驻 `setInterval`）——用超时杀掉，
-   看结论行即可，这是旧行为、不是卡死。
-2. 无头 Chrome 有 18px 边框 / 152px 标题栏开销，**最小窗宽被钳到 500**；所以探针默认 `--size 518,1232`
-   （换算出 500×1080 的布局视口，比例 2.16:1，与真机一致）。换成更方的窗口，算出的留白会失真。
-3. 探针会**注入假 WebSocket + 假 fetch**（`docs/browser-probe.py` 里的 `SHIM`），
-   验的是「构建产物 + 真实 Chrome 渲染」，不连后端。
-4. 手机探针里那份「设计坐标换算」假定整页旋转 90°，所以横屏（不旋转）下相关断言会自动跳过。
+详见模块 docs/线上压测复测_2026-10-12.md；原始数据在本机 docs/performance/results-2026-10-12-192-retest/（含账号标识，已 gitignore，不外发）。回退：`RECORDS_P2_READ_ENABLED=false` 重启，或执行 `revoke` 撤门闩。
 
----
+## 整理后的目录
 
-## 5. 这套代码里踩过的坑（硬约定）
+- HainanMaJhong/src、frontend、pom.xml：项目源码、测试、静态资源和前端锁文件。
+- HainanMaJhong/ops：迁移、生命周期、Nginx 与监控工具，以及交付包构建工具。
+- HainanMaJhong/docs：当前功能、部署和压测说明，以及浏览器验证脚本。
+- HainanMaJhong/release：已通过干净构建的 P2 候选 jar；Maven 重新构建仍输出到 target。
+- docs/performance：独立压测项目、配置模板、脱敏历史数据及公开对比 CSV/图表。
+- docs：必要代码阅读指南。
+- data/schema-backups：原 back 目录的 SQL 原文件；不代表完整生产备份。
+- output/pdf：已有两份公开报告。
+- deliverables：运维交付 zip、SHA256 和交付说明。
+- .local-archive：原始压测证据、旧包、设计资料和开发日志的本地 zip，不入库、不发送。
 
-完整版在 `HainanMaJhong/frontend/README.md` 第 1~10 条。最要命的六条：
+.git 和 HainanMaJhong/.env 保留。没有读取或发送真实环境配置、没有删除业务数据库数据。node_modules、target 和旧临时编译产物可重新生成；当前 jar 已移到 release。
 
-1. **不要用 PowerShell 改 `.vue`/源码文件**（`Get-Content -Raw` 按 ANSI 读、`Set-Content -Encoding UTF8` 加 BOM
-   → 双重编码，曾毁掉整个 `GameTable.vue`）。用编辑工具，或 `[IO.File]::WriteAllText($p,$t,UTF8Encoding($false))`。
-2. **虚拟横屏下 `vh` 是物理视口**：页面根元素不能用 `min-height:100vh`，弹窗不能用 `88vh` 限高
-   （曾导致「规则窗口上下都在屏幕外」）。用 `max-height: min(100%, var(--frame-h))`。
-3. **旋转只做在 `#game-app` 上**，不要再转 `.scale-layer`；布局改动必须用探针量像素，
-   而且旋转后 `getBoundingClientRect` 是**视觉**尺寸，判断上下左右要用设计坐标。
-4. **牌桌是 1280×(设计高) 的等比缩放固定框**：手机竖屏用紧凑设计高 590（手牌 lg、操作键竖排等宽），
-   桌面/横屏必须保持 720 —— 桌面那套有逐像素断言。
-5. **CSS 注释里不能出现 `*/`**（提前结束注释，整段样式被静默丢弃）；**MyBatis 注解动态 SQL 必须以 `<script>` 开头**。
-6. **改完前端一定要 `pnpm build` 再入库**；打 jar 用 `mvn clean package`（不带 `clean` 会把历次静态产物留在 jar 里，
-   旧 URL 还能取到旧文件）。
+## 构建与验证
 
----
+使用 Java 17、Maven 3.9、Node.js 22/24 和 pnpm。先在 frontend 执行 pnpm install --frozen-lockfile，然后 pnpm build、pnpm check；在模块根执行 mvn clean package。
 
-## 6. 待办（按优先级）
+压测目录单独执行 pnpm install --frozen-lockfile --ignore-scripts、pnpm check。配置目标和专用账号后，用 node run-capacity.mjs --config config.local.json --check 先做离线校验，再启动实际运行。此次整理仅做本机自检，没有向线上发压。
 
-### 6.1 云端部署新版本（最高优先，线上还是旧代码）
+此前最终后端 clean package：79 项默认测试，78 通过、1 项 Redis 实库测试跳过；P2 MySQL 专项 9 项通过，另有旧新战绩 SQL 比对。整理后的压测自检覆盖 identity/gzip、配置边界、独立账号、拒绝覆盖、失败退出和凭据不写入报告。
 
-服务器：阿里云 ECS，域名 `jiangpahnmj.cn`，systemd 服务名 `mahjong`，nginx 反代
-（**服务名/路径以服务器实际为准，先 `systemctl cat mahjong`**）。
+## 硬约定
 
-已经踩到的两个坑：
+不要用 ANSI/BOM 方式改源码。前端修改后必须重新构建并随仓库保留 static 产物；jar 用 clean package。牌桌布局改动必须验证桌面和手机横竖屏。
 
-1. **502 / 登录「服务器内部错误」**：应用在往 `192.168.133.128:3306` 发 SYN（那是本机开发 VM 的地址，
-   公网服务器永远连不上）→ 说明服务器上跑的是 **local profile**，用上了 `application-local.yml` 的默认库地址。
-   修法：unit 里加 `Environment=SPRING_PROFILES_ACTIVE=prod`，并在 `/opt/mahjong/.env` 写
-   `DB_HOST=127.0.0.1`（或云库内网地址）+ `DB_PASSWORD` / `REDIS_PASSWORD` / `JWT_SECRET`；
-   `WorkingDirectory` 必须是 `.env` 所在目录。
-2. **老客户端会 404**：新 jar 里已经没有 `game.html` / `lobby.html` / `room.html` / `records.html`
-   （新版只有一个 `index.html`，hash 路由）。老 APK（WebView）打开旧路径会白屏 → 要么发新 APK
-   （`.env` 里 `APP_APK_PATH=/opt/mahjong/jiangpahnmj.apk`，换包不用重打 jar），要么在新前端给老路径加重定向。
-
-上线前清单（都已在代码里处理，别改回去）：`/download/app` 已实现；`/api/debug/**` 只在 local 注册；
-prod 关闭 SQL 日志；`.env` 不进仓库；MySQL/Redis 不暴露公网；**应用只能单实例**（房间状态在内存）。
-部署步骤与 nginx 配置（含 WebSocket `Upgrade` 头）见 `HainanMaJhong/README.md` 的「部署到云服务器」。
-
-### 6.2 其它
-
-| # | 事项 | 说明 |
-|---|---|---|
-| 1 | BGM 压缩 | `music/background.mp3` = **2.49MB**，占手机首包 80%。本机**没有 ffmpeg**，需外部压到 64kbps 单声道（约 500KB） |
-| 2 | 删无用大图 | `static/img/table_bg.png` = 2.42MB，**前端无任何引用**（旧版遗留，git 里有）。删了只影响 jar 体积，`check-tiles.mjs` 会提示 |
-| 3 | GitHub 默认分支 | `main` 已指向新代码；若要让侧边栏显示 `release/v2-arch`，去 Settings → Branches 换一次 |
-| 4 | 空闲大厅的「被顶下线」 | 现在靠 HTTP 4011 + WS `kick`；用户挂在大厅不动时要等下一次请求。要即时就得加 30~60s 心跳 |
-| 5 | 历史 `total_fan` | 语义从「番型个数」改成「倍数求和」，库里 4700+ 行旧数据没回填（新数据正确） |
-| 6 | `@RequireRole` / `AuthorizationInterceptor` | 已实现但 0 处使用；`DebugController` 用 `@Profile("local")` 兜住 |
-| 7 | 老分支 | `v4-update` 是更早的 WIP，确认没用了可以删 |
-
----
-
-## 7. 给新窗口的起点建议
-
-1. 先跑一遍 §4 的验证命令确认基线（**别直接改代码**）。
-2. 改界面 → 必然跑 `mobile-probe.py`（竖屏 + 横屏两个方向）；改牌桌布局 → 还要跑桌面探针。
-3. 要动认证/房间 → 先看 §2 的类职责表和 `frontend/README.md` 的硬约定，别绕过拦截器。
-4. 要部署 → 按 §6.1；服务器操作前先 `systemctl cat mahjong`、`journalctl -u mahjong -n 80`；
-   应用日志若不在 journal 里，就在 unit 里加 `StandardOutput=append:/var/log/mahjong.log`。
-5. 旧版参考：`docs/legacy-ref/*.html`（从旧 jar 抽出的单文件页面）、
-   `back/HainanMaJhong.jar`（44MB，未入库，本地对照用）。
+真实凭据只留在本地 .env 或压测 private 目录，不能提交或跟结果分享。生产保持单实例；重启安排维护窗口，不默认承诺进行中的牌局无损恢复。原始 2026-09-24 交接文件已保存在本地历史 zip 中。

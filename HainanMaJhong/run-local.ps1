@@ -23,6 +23,7 @@ $root    = $PSScriptRoot
 $repo    = Split-Path $root -Parent
 $envFile = Join-Path $root '.env'
 $jar     = Join-Path $root 'target\HainanMaJhong2-1.0-SNAPSHOT.jar'
+if (-not (Test-Path -LiteralPath $jar)) { $jar = Join-Path $root 'release\HainanMaJhong2-1.0-SNAPSHOT.jar' }
 $javaExe = 'C:\Users\ASUS\.jdks\ms-17.0.20.1-1\bin\java.exe'
 if (-not $RedisHost) { $RedisHost = $DbHost }
 

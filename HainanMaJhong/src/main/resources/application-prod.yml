@@ -1,4 +1,4 @@
-# ============================================================================
+﻿# ============================================================================
 #  云端（生产）配置 —— 启用方式：
 #      SPRING_PROFILES_ACTIVE=prod          （推荐，写进 systemd 的 Environment=）
 #      或 java -jar app.jar --spring.profiles.active=prod
@@ -84,6 +84,8 @@ logging:
   level:
     root: INFO
     hainanMahjong: INFO
+    # 逐手诊断日志（P0 排查用），默认关闭；启用：DIAG_LOG_LEVEL=INFO 并重启
+    hainanMahjong.diag: ${DIAG_LOG_LEVEL:OFF}
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"
 

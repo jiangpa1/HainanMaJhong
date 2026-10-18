@@ -17,6 +17,9 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.ArgumentMatchers.anyString;
 
 /**
  * 房间销毁时必须把这一场的 {@code end_time} 落库。
@@ -31,6 +34,30 @@ import static org.mockito.Mockito.verify;
  * 不是 SQL 本身；不依赖数据库的测试在 CI 里更稳。</p>
  */
 class RoomTeardownPersistTest {
+
+    @Test void outboxCommitPrecedesRedisAndImmediateAck() {
+        var outbox = mock(hainanMahjong.service.impl.RoomCloseOutbox.class);
+        svc.setCloseOutbox(outbox);
+        Room room = new Room("T00001", 7L); room.sessionId = 777L;
+        when(redis.closeRoom(room.code, room.generation)).thenReturn(true);
+        svc.stopAndClear(room);
+        var order = inOrder(roundPersist, redis, outbox);
+        order.verify(roundPersist).closeWithOutbox(777, room.code, room.generation);
+        order.verify(redis).closeRoom(room.code, room.generation);
+        order.verify(outbox).complete(777, room.generation);
+        verify(roundPersist, never()).disbandSession(anyLong());
+    }
+
+    @Test void failedRedisLeavesDurableJobUnacknowledgedButCleansMemory() {
+        var outbox = mock(hainanMahjong.service.impl.RoomCloseOutbox.class);
+        svc.setCloseOutbox(outbox);
+        Room room = new Room("T00001", 7L); room.sessionId = 777L;
+        when(redis.closeRoom(room.code, room.generation)).thenThrow(new IllegalStateException());
+        svc.stopAndClear(room);
+        verify(outbox, never()).complete(anyLong(), anyString());
+        verify(registry).unregister(room);
+        assertEquals(State.CLOSED, room.state);
+    }
 
     private RoomSnapshotRepository redis;
     private RoomRegistry registry;

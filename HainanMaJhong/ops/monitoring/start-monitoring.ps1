@@ -4,7 +4,10 @@ param(
     [string]$IdentityFile = "$env:USERPROFILE\.ssh\mahjong_ops",
     [string]$SshHost = 'root@39.107.247.119',
     [switch]$ValidateOnly,
-    [switch]$NoBrowser
+    [switch]$NoBrowser,
+    [switch]$WithEmailAlerts,
+    [string]$AlertmanagerConfig = (Join-Path $PSScriptRoot 'private/alertmanager.local.yml'),
+    [string]$AlertmanagerHome = ''
 )
 
 # Windows PowerShell 5.1 and PowerShell 7. Services keep running after this script exits.
@@ -52,6 +55,7 @@ function Test-ServiceEndpoint([string]$Kind, [string]$Url) {
     if (!$body) { return $false }
     if ($Kind -eq 'ssh') { return $body -match '(?m)^mahjong_' }
     if ($Kind -eq 'prometheus') { return $body -match 'Prometheus Server is Ready' }
+    if ($Kind -eq 'alertmanager') { return $body -match 'OK' }
     try { return ($body | ConvertFrom-Json).database -eq 'ok' } catch { return $false }
 }
 
@@ -119,6 +123,24 @@ try {
     Assert-File (Join-Path $prometheusHome 'prometheus.yml')
     Assert-File (Join-Path $prometheusHome 'capacity-alerts.yml')
     Assert-File (Join-Path $grafanaHome 'conf\defaults.ini')
+    if (!$AlertmanagerHome) {
+        $AlertmanagerHome = Join-Path $MonitoringRoot 'alertmanager'
+        if (!(Test-Path -LiteralPath (Join-Path $AlertmanagerHome 'alertmanager.exe'))) {
+            $localRuntime = Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'private/runtime') -Directory -Filter 'alertmanager-*.windows-amd64' -ErrorAction SilentlyContinue |
+                Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'alertmanager.exe') } |
+                Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            if ($localRuntime) { $AlertmanagerHome = $localRuntime.FullName }
+        }
+    }
+    $alertmanagerExe = Join-Path $AlertmanagerHome 'alertmanager.exe'
+    if ($WithEmailAlerts) {
+        Assert-X64Executable $alertmanagerExe
+        Assert-File $AlertmanagerConfig
+        $amtool = Join-Path $AlertmanagerHome 'amtool.exe'
+        Assert-X64Executable $amtool
+        & $amtool check-config $AlertmanagerConfig
+        if ($LASTEXITCODE -ne 0) { throw 'Invalid Alertmanager configuration' }
+    }
     if ($ValidateOnly) {
         Write-Host '[OK] Paths, private key and executable architectures validated.' -ForegroundColor Green
         exit 0
@@ -126,6 +148,15 @@ try {
 
     $script:logHome = Join-Path $MonitoringRoot 'launcher-logs'
     New-Item -ItemType Directory -Path $script:logHome -Force | Out-Null
+    if ($WithEmailAlerts) {
+        $alertmanagerData = Join-Path (Split-Path -Parent $AlertmanagerConfig) 'runtime/alertmanager-data'
+        Ensure-Service -Name Alertmanager -Kind alertmanager -Port 9093 -Url 'http://127.0.0.1:9093/-/ready' `
+            -Executable $alertmanagerExe -WorkingDirectory $AlertmanagerHome -TimeoutSeconds 30 `
+            -NativeArguments @("--config.file=$AlertmanagerConfig", '--web.listen-address=127.0.0.1:9093',
+                '--cluster.listen-address=', "--storage.path=$alertmanagerData")
+    } else {
+        Write-Warning 'Email alerts were not started. Use -WithEmailAlerts after filling private SMTP configuration.'
+    }
     Ensure-Service -Name 'SSH metrics tunnel' -Kind ssh -Port 9091 `
         -Url 'http://127.0.0.1:9091/actuator/prometheus' -Executable $sshExe -WorkingDirectory $MonitoringRoot `
         -TimeoutSeconds 20 -NativeArguments @('-i', $IdentityFile, '-N', '-L', '127.0.0.1:9091:127.0.0.1:9091',
@@ -134,7 +165,7 @@ try {
     Ensure-Service -Name Prometheus -Kind prometheus -Port 9090 -Url 'http://127.0.0.1:9090/-/ready' `
         -Executable $prometheusExe -WorkingDirectory $prometheusHome -TimeoutSeconds 30 `
         -NativeArguments @('--config.file=prometheus.yml', '--web.listen-address=127.0.0.1:9090',
-            '--storage.tsdb.path=./data', '--storage.tsdb.retention.time=7d')
+            '--storage.tsdb.path=./data', '--storage.tsdb.retention.time=7d', '--web.enable-lifecycle')
     Ensure-Service -Name Grafana -Kind grafana -Port 3000 -Url 'http://127.0.0.1:3000/api/health' `
         -Executable $grafanaExe -WorkingDirectory $grafanaHome -TimeoutSeconds 90 -NativeArguments $grafanaArguments
 

@@ -65,6 +65,8 @@ public class WsAuthHandshakeInterceptor implements HandshakeInterceptor {
     private final JwtUtils jwtUtils;
     private final TokenService tokenService;
     private final ObjectMapper objectMapper;
+    @org.springframework.beans.factory.annotation.Value("${game.push.default-mode:full}")
+    private String defaultPushMode = "full";
     private hainanMahjong.monitoring.CapacityMetrics metrics;
     @org.springframework.beans.factory.annotation.Autowired
     public void setCapacityMetrics(hainanMahjong.monitoring.CapacityMetrics metrics) { this.metrics = metrics; }
@@ -106,6 +108,12 @@ public class WsAuthHandshakeInterceptor implements HandshakeInterceptor {
         attributes.put(ATTR_USERNAME, claims.get("username", String.class));
         Number role = claims.get("role", Number.class);
         attributes.put(ATTR_ROLE, role == null ? null : role.intValue());
+
+        if ("/game".equals(request.getURI().getPath())) {
+            String mode = queryParam(request, "push");
+            if (mode == null || mode.isBlank()) mode = defaultPushMode;
+            attributes.put(GamePushProtocol.MODE, "delta".equals(mode) ? "delta" : "full");
+        }
 
         accepted = true;
         return true;

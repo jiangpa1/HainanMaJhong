@@ -137,7 +137,9 @@ public class SchemaInitializer {
                 jdbc.execute("ALTER TABLE game_rounds ADD COLUMN wind TINYINT");
             } catch (Exception ignored) {
             }
-            log.info("数据表已就绪：user / game_sessions / game_rounds / game_round_scores");
+            jdbc.execute(RecordProjection.PLAYERS_DDL);
+            jdbc.execute(RecordProjection.VERSION_DDL);
+            log.info("数据表已就绪：user / game_sessions / game_rounds / game_round_scores / record projections");
         } catch (Exception e) {
             log.warn("初始化数据表失败（请确认 MySQL 已启动）：{}", e.getMessage());
         }

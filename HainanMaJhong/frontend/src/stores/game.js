@@ -53,6 +53,8 @@ export const useGameStore = defineStore('game', {
     socket: null,
     connState: 'idle',
     authError: '',
+    lastPushSeq: 0,
+    lastResyncAt: 0,
 
     // ---- 身份 ----
     roomCode: '',
@@ -186,11 +188,18 @@ export const useGameStore = defineStore('game', {
 
       this.socket = new GameSocket({
         path: '/game',
-        params: { code: roomCode, seat: this.mySeat },
+        // Omit the override by default so PUSH_DEFAULT remains an effective rollback.
+        params: { code: roomCode, seat: this.mySeat,
+          ...(['full', 'delta'].includes(import.meta.env.VITE_GAME_PUSH_MODE)
+            ? { push: import.meta.env.VITE_GAME_PUSH_MODE } : {}) },
         onMessage: (msg) => this.handle(msg),
         onState: (s) => {
           this.connState = s
-          if (s === 'open') notifyRecordReconnect(this.roomCode)
+          if (s === 'open') {
+            this.lastPushSeq = 0
+            this.lastResyncAt = 0
+            notifyRecordReconnect(this.roomCode)
+          }
         },
         onAuthFailed: (reason) => {
           this.authError = reason
@@ -267,6 +276,17 @@ export const useGameStore = defineStore('game', {
     /* ==================== 消息分发 ==================== */
 
     handle(msg) {
+      if (Number.isSafeInteger(msg.seq) && msg.seq > 0) {
+        if (msg.seq <= this.lastPushSeq) return
+        if (this.lastPushSeq > 0 && msg.seq !== this.lastPushSeq + 1) {
+          const now = Date.now()
+          if (now - this.lastResyncAt >= 5000 && this.send({ type: 'resync' })) {
+            this.lastResyncAt = now
+          }
+        }
+        this.lastPushSeq = msg.seq
+      }
+      this.applyPushState(msg)
       switch (msg.type) {
         /*
          * 被顶下线：同一账号在别的设备登录时服务端推这条，然后关连接。
@@ -373,6 +393,8 @@ export const useGameStore = defineStore('game', {
       this.lastDiscard = null
       this.turnSeat = null
       this.drawnTile = -1
+      this.counts = {}
+      this.wall = -1
       // 牌河/副露/花牌必须清空，否则上一把的牌会留在桌上。
       // 注意：这些字段平时靠 discard/meld/flower 消息增量追加，
       // 只有断线重连时才会收到服务端的 board 全量快照。
@@ -396,7 +418,7 @@ export const useGameStore = defineStore('game', {
 
     /** counts：各家手牌张数（对手用来显示牌背数量）+ 牌墙剩余 */
     onCounts(m) {
-      this.counts = m.counts || {}
+      if (m.counts) this.counts = m.counts
       // wall 只有中后段（sendCounts）才带；早期 onDeal/onDraw 分支不带，别把已知值冲成 -1
       if (typeof m.wall === 'number') this.wall = m.wall
     },
@@ -411,7 +433,8 @@ export const useGameStore = defineStore('game', {
        */
       if (Array.isArray(m.melds)) this.boardMelds[this.mySeat] = m.melds
       if (Array.isArray(m.flowers)) this.boardFlowers[this.mySeat] = m.flowers
-      // 手牌里若含刚摸的牌，drawnTile 由 request/draw 消息决定，这里不擅自改
+      if (typeof m.drawnTile === 'number') this.drawnTile = m.drawnTile
+      // 普通 hand 由 request/draw 决定 drawnTile；重同步快照可显式校正它。
     },
 
     onDealer(m) {
@@ -422,6 +445,17 @@ export const useGameStore = defineStore('game', {
     onTurn(m) {
       this.turnSeat = m.seat || null
       this.timeoutMs = m.timeoutMs || 0
+    },
+
+    /** Optional folded state also appears on authoritative board/counts corrections. */
+    applyPushState(m) {
+      if (m.seat && Number.isInteger(m.handSize) && m.handSize >= 0) {
+        this.counts[m.seat] = m.handSize
+      }
+      if (Object.prototype.hasOwnProperty.call(m, 'nextSeat')) {
+        this.turnSeat = m.nextSeat || null
+        this.timeoutMs = Math.max(0, Number(m.timeoutMs) || 0)
+      }
     },
 
     /** draw：某家摸牌。别人的摸牌只知道"摸了一张"，牌面不下发 */

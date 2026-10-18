@@ -2,6 +2,7 @@ package hainanMahjong.config;
 
 import hainanMahjong.interceptor.AuthorizationInterceptor;
 import hainanMahjong.interceptor.JwtInterceptor;
+import hainanMahjong.interceptor.RecordsAdmissionInterceptor;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
@@ -19,10 +20,13 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
     private final JwtInterceptor jwtInterceptor;
     private final AuthorizationInterceptor authorizationInterceptor;
+    private final RecordsAdmissionInterceptor recordsAdmissionInterceptor;
 
-    public WebMvcConfig(JwtInterceptor jwtInterceptor, AuthorizationInterceptor authorizationInterceptor) {
+    public WebMvcConfig(JwtInterceptor jwtInterceptor, AuthorizationInterceptor authorizationInterceptor,
+                        RecordsAdmissionInterceptor recordsAdmissionInterceptor) {
         this.jwtInterceptor = jwtInterceptor;
         this.authorizationInterceptor = authorizationInterceptor;
+        this.recordsAdmissionInterceptor = recordsAdmissionInterceptor;
     }
 
     /** 不需要 accessToken 的接口：注册 / 登录 / 刷新。 */
@@ -65,5 +69,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
         registry.addInterceptor(authorizationInterceptor)
                 .addPathPatterns("/api/**")
                 .excludePathPatterns(AUTH_FREE);
+
+        registry.addInterceptor(recordsAdmissionInterceptor)
+                .addPathPatterns("/api/records", "/api/records/**", "/api/v2/records", "/api/v2/records/**");
     }
 }

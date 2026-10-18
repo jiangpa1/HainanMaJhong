@@ -29,10 +29,10 @@
         "name": "outbound_bps",
         "label": "出网带宽上限 bit/s",
         "type": "constant",
-        "query": "10000000",
+        "query": "20000000",
         "current": {
-          "text": "10000000",
-          "value": "10000000"
+          "text": "20000000",
+          "value": "20000000"
         },
         "hide": 0
       }
@@ -314,19 +314,75 @@
     },
     {
       "id": 6,
+      "type": "timeseries",
+      "title": "场次结束写入失败",
+      "description": "收口时幂等重试 3 次仍失败才自增；启动即注册为 0，因此 >0 就代表真有场次没写结束时间。对应告警 MahjongSessionCloseFailed，需按日志里的 room/session/generation 人工核对。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 12,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(mahjong_room_session_close_failures_total{job=\"hainan-mahjong\"}[2m])",
+          "legendFormat": "关闭失败/秒",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "mahjong_room_session_close_failures_total{job=\"hainan-mahjong\"}",
+          "legendFormat": "关闭失败累计",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          }
+        }
+      ]
+    },
+    {
+      "id": 7,
       "type": "row",
       "title": "2 · HTTP 接口",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 15,
+        "y": 22,
         "w": 24,
         "h": 1
       },
       "panels": []
     },
     {
-      "id": 7,
+      "id": 8,
       "type": "timeseries",
       "title": "各接口请求率",
       "description": "",
@@ -336,7 +392,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 16,
+        "y": 23,
         "w": 12,
         "h": 7
       },
@@ -373,7 +429,7 @@
       ]
     },
     {
-      "id": 8,
+      "id": 9,
       "type": "timeseries",
       "title": "HTTP 服务端完整处理 P50/P95/P99",
       "description": "服务端处理到响应写入完成；包含业务码失败，标签使用路由模板。不能替代客户端完整接收耗时。",
@@ -383,7 +439,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 16,
+        "y": 23,
         "w": 12,
         "h": 7
       },
@@ -438,7 +494,7 @@
       ]
     },
     {
-      "id": 9,
+      "id": 10,
       "type": "timeseries",
       "title": "HTTP 首次写入 P50/P95/P99",
       "description": "首次写入应用响应流；并非经公网到达客户端的 TTFB。没有正文时采用服务端处理耗时。",
@@ -448,7 +504,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 23,
+        "y": 30,
         "w": 12,
         "h": 7
       },
@@ -503,17 +559,17 @@
       ]
     },
     {
-      "id": 10,
+      "id": 11,
       "type": "timeseries",
-      "title": "HTTP 失败比例",
-      "description": "同时统计 HTTP 错误与 HTTP 200 中 code!=200 的业务失败。",
+      "title": "HTTP 真失败与主动拒绝比例",
+      "description": "真失败＝既非 success 也非 rate_limited，与告警 MahjongHttpErrors 同口径，包含 HTTP 错误与 HTTP 200 中 code!=200 的业务失败。主动拒绝是准入保护削峰，与应用故障无关，单列一条。",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
       "gridPos": {
         "x": 12,
-        "y": 23,
+        "y": 30,
         "w": 12,
         "h": 7
       },
@@ -540,8 +596,17 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(mahjong_http_response_seconds_count{job=\"hainan-mahjong\",outcome!=\"success\"}[2m])) / sum(rate(mahjong_http_response_seconds_count{job=\"hainan-mahjong\"}[2m]))",
-          "legendFormat": "错误比例",
+          "expr": "sum(rate(mahjong_http_response_seconds_count{job=\"hainan-mahjong\",outcome!~\"success|rate_limited\"}[2m])) / sum(rate(mahjong_http_response_seconds_count{job=\"hainan-mahjong\"}[2m]))",
+          "legendFormat": "真失败比例",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(mahjong_http_response_seconds_count{job=\"hainan-mahjong\",outcome=\"rate_limited\"}[2m])) / sum(rate(mahjong_http_response_seconds_count{job=\"hainan-mahjong\"}[2m]))",
+          "legendFormat": "主动拒绝(429)",
           "datasource": {
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
@@ -550,7 +615,7 @@
       ]
     },
     {
-      "id": 11,
+      "id": 12,
       "type": "timeseries",
       "title": "各接口平均响应正文大小",
       "description": "UTF-8 应用正文，Nginx 压缩前，不包括响应头。",
@@ -560,7 +625,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 30,
+        "y": 37,
         "w": 12,
         "h": 7
       },
@@ -597,20 +662,123 @@
       ]
     },
     {
-      "id": 12,
+      "id": 13,
+      "type": "timeseries",
+      "title": "准入拒绝率（按 group）",
+      "description": "分母是该组的全部准入判定。某组拒绝率 >5% 且流量 >1 次/秒持续 2 分钟触发 MahjongAdmissionRejecting。拒绝不等于故障：它是用\"少收\"换\"已收的延迟\"，判读时必须和第 2 行各接口 P95 一起看。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 37,
+        "w": 12,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (group) (rate(mahjong_admission_requests_total{job=\"hainan-mahjong\",outcome!=\"admitted\"}[2m])) / sum by (group) (rate(mahjong_admission_requests_total{job=\"hainan-mahjong\"}[2m]))",
+          "legendFormat": "{{group}} 拒绝率",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          }
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "准入在途并发与限流键",
+      "description": "在途＝已通过闸门但尚未释放的请求数；顶到额度（登录 1、战绩 48、legacy 8）说明该组并发已打满。限流键数与每分钟键膨胀相关，上限 TRAFFIC_MAX_KEYS=10000。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 44,
+        "w": 12,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "mahjong_admission_inflight{job=\"hainan-mahjong\"}",
+          "legendFormat": "在途 {{group}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "mahjong_admission_keys{job=\"hainan-mahjong\"}",
+          "legendFormat": "限流键 {{group}}/{{scope}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          }
+        }
+      ]
+    },
+    {
+      "id": 15,
       "type": "row",
       "title": "3 · WebSocket",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 37,
+        "y": 51,
         "w": 24,
         "h": 1
       },
       "panels": []
     },
     {
-      "id": 13,
+      "id": 16,
       "type": "timeseries",
       "title": "房间、游戏连接与断线率",
       "description": "",
@@ -620,7 +788,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 38,
+        "y": 52,
         "w": 12,
         "h": 7
       },
@@ -666,7 +834,7 @@
       ]
     },
     {
-      "id": 14,
+      "id": 17,
       "type": "timeseries",
       "title": "握手 P50/P95/P99",
       "description": "",
@@ -676,7 +844,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 38,
+        "y": 52,
         "w": 12,
         "h": 7
       },
@@ -731,7 +899,7 @@
       ]
     },
     {
-      "id": 15,
+      "id": 18,
       "type": "timeseries",
       "title": "发送等待与关键广播未确认数",
       "description": "当前发送采用同步写入。pending 包含正在发送及等待 session 锁的调用，不是底层 TCP 发送队列长度。",
@@ -741,7 +909,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 45,
+        "y": 59,
         "w": 12,
         "h": 7
       },
@@ -787,7 +955,7 @@
       ]
     },
     {
-      "id": 16,
+      "id": 19,
       "type": "timeseries",
       "title": "发送完成 P50/P95/P99",
       "description": "包含序列化、session 锁等待和 sendMessage；完成不代表客户端收到。",
@@ -797,7 +965,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 45,
+        "y": 59,
         "w": 12,
         "h": 7
       },
@@ -852,7 +1020,7 @@
       ]
     },
     {
-      "id": 17,
+      "id": 20,
       "type": "timeseries",
       "title": "四名真人关键广播确认 P50/P95/P99",
       "description": "只有四名在线真人且客户端支持 ACK 才产生数据。从广播到最后一人处理消息并 ACK 的往返耗时，是送达耗时上界，含网络回程和客户端调度，不代表画面渲染。",
@@ -862,7 +1030,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 52,
+        "y": 66,
         "w": 12,
         "h": 7
       },
@@ -917,7 +1085,7 @@
       ]
     },
     {
-      "id": 18,
+      "id": 21,
       "type": "timeseries",
       "title": "确认超时、跟踪丢弃与发送错误",
       "description": "确认跟踪最多 2048 个广播，15 秒过期；旧客户端无 ACK 会显示超时。",
@@ -927,7 +1095,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 52,
+        "y": 66,
         "w": 12,
         "h": 7
       },
@@ -982,20 +1150,20 @@
       ]
     },
     {
-      "id": 19,
+      "id": 22,
       "type": "row",
       "title": "4 · JVM 与执行队列",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 59,
+        "y": 73,
         "w": 24,
         "h": 1
       },
       "panels": []
     },
     {
-      "id": 20,
+      "id": 23,
       "type": "timeseries",
       "title": "堆与非堆使用",
       "description": "",
@@ -1005,7 +1173,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 60,
+        "y": 74,
         "w": 12,
         "h": 7
       },
@@ -1042,7 +1210,7 @@
       ]
     },
     {
-      "id": 21,
+      "id": 24,
       "type": "timeseries",
       "title": "GC 暂停 P95、累计暂停占比",
       "description": "",
@@ -1052,7 +1220,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 60,
+        "y": 74,
         "w": 12,
         "h": 7
       },
@@ -1098,7 +1266,7 @@
       ]
     },
     {
-      "id": 22,
+      "id": 25,
       "type": "timeseries",
       "title": "线程、阻塞与定时任务",
       "description": "",
@@ -1108,7 +1276,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 67,
+        "y": 81,
         "w": 12,
         "h": 7
       },
@@ -1181,7 +1349,7 @@
       ]
     },
     {
-      "id": 23,
+      "id": 26,
       "type": "timeseries",
       "title": "进程 CPU、打开文件描述符",
       "description": "",
@@ -1191,7 +1359,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 67,
+        "y": 81,
         "w": 12,
         "h": 7
       },
@@ -1246,20 +1414,85 @@
       ]
     },
     {
-      "id": 24,
+      "id": 27,
+      "type": "timeseries",
+      "title": "Tomcat 线程池饱和",
+      "description": "忙线程顶到上限（线上为 200）＝请求已在排队，是\"延迟爆炸\"的前兆；此时准入拒绝通常已救不回已接纳请求的延迟。accept 队列长度 Tomcat 不暴露，队列积压只能从客户端延迟倒推。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 88,
+        "w": 12,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "tomcat_threads_busy_threads{job=\"hainan-mahjong\"}",
+          "legendFormat": "忙线程",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "tomcat_threads_current_threads{job=\"hainan-mahjong\"}",
+          "legendFormat": "当前线程",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          }
+        },
+        {
+          "refId": "C",
+          "expr": "tomcat_threads_config_max_threads{job=\"hainan-mahjong\"}",
+          "legendFormat": "上限",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          }
+        }
+      ]
+    },
+    {
+      "id": 28,
       "type": "row",
       "title": "5 · MySQL 与 Redis",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 74,
+        "y": 95,
         "w": 24,
         "h": 1
       },
       "panels": []
     },
     {
-      "id": 25,
+      "id": 29,
       "type": "timeseries",
       "title": "SQL 调用 P50/P95/P99",
       "description": "Mapper 方法耗时包含获取连接、执行和映射；不采集 SQL 参数。定位慢 SQL 仍需受控 slow log 与 EXPLAIN。",
@@ -1269,7 +1502,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 75,
+        "y": 96,
         "w": 12,
         "h": 7
       },
@@ -1324,7 +1557,7 @@
       ]
     },
     {
-      "id": 26,
+      "id": 30,
       "type": "timeseries",
       "title": "结算及关闭事务 P50/P95/P99",
       "description": "环绕事务代理，包括提交和锁等待。",
@@ -1334,7 +1567,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 75,
+        "y": 96,
         "w": 12,
         "h": 7
       },
@@ -1389,7 +1622,7 @@
       ]
     },
     {
-      "id": 27,
+      "id": 31,
       "type": "timeseries",
       "title": "Hikari 活跃、空闲及等待连接",
       "description": "",
@@ -1399,7 +1632,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 82,
+        "y": 103,
         "w": 12,
         "h": 7
       },
@@ -1463,7 +1696,7 @@
       ]
     },
     {
-      "id": 28,
+      "id": 32,
       "type": "timeseries",
       "title": "连接获取 P50/P95/P99",
       "description": "",
@@ -1473,7 +1706,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 82,
+        "y": 103,
         "w": 12,
         "h": 7
       },
@@ -1528,7 +1761,7 @@
       ]
     },
     {
-      "id": 29,
+      "id": 33,
       "type": "timeseries",
       "title": "MySQL 慢查询及行锁等待增长",
       "description": "服务器全局累计指标，包含其他 MySQL 客户端；行锁 time 单位毫秒。MySQL 探测失效时看 probe.up，旧值不能当实时值。",
@@ -1538,7 +1771,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 89,
+        "y": 110,
         "w": 12,
         "h": 7
       },
@@ -1593,7 +1826,7 @@
       ]
     },
     {
-      "id": 30,
+      "id": 34,
       "type": "timeseries",
       "title": "Redis/快照访问 P50/P95/P99",
       "description": "快照仓储端到端耗时；包含 Redis 请求及返回。",
@@ -1603,7 +1836,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 89,
+        "y": 110,
         "w": 12,
         "h": 7
       },
@@ -1658,7 +1891,7 @@
       ]
     },
     {
-      "id": 31,
+      "id": 35,
       "type": "timeseries",
       "title": "Redis 内存",
       "description": "",
@@ -1668,7 +1901,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 96,
+        "y": 117,
         "w": 12,
         "h": 7
       },
@@ -1705,7 +1938,7 @@
       ]
     },
     {
-      "id": 32,
+      "id": 36,
       "type": "timeseries",
       "title": "Redis 命中率与过期、淘汰",
       "description": "INFO 全局统计；与快照写入拒绝分开统计。",
@@ -1715,7 +1948,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 96,
+        "y": 117,
         "w": 12,
         "h": 7
       },
@@ -1770,7 +2003,7 @@
       ]
     },
     {
-      "id": 33,
+      "id": 37,
       "type": "timeseries",
       "title": "采集与外部探测状态",
       "description": "0 表示失败或 MySQL 池无空闲连接而跳过。没有指标表示未启用/尚未采到，不填成 0。",
@@ -1780,7 +2013,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 103,
+        "y": 124,
         "w": 12,
         "h": 7
       },
@@ -1835,20 +2068,20 @@
       ]
     },
     {
-      "id": 34,
+      "id": 38,
       "type": "row",
       "title": "6 · 主机与带宽",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 110,
+        "y": 131,
         "w": 24,
         "h": 1
       },
       "panels": []
     },
     {
-      "id": 35,
+      "id": 39,
       "type": "timeseries",
       "title": "主机 CPU 使用率",
       "description": "",
@@ -1858,7 +2091,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 111,
+        "y": 132,
         "w": 12,
         "h": 7
       },
@@ -1895,7 +2128,7 @@
       ]
     },
     {
-      "id": 36,
+      "id": 40,
       "type": "timeseries",
       "title": "主机可用内存",
       "description": "",
@@ -1905,7 +2138,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 111,
+        "y": 132,
         "w": 12,
         "h": 7
       },
@@ -1951,17 +2184,17 @@
       ]
     },
     {
-      "id": 37,
+      "id": 41,
       "type": "timeseries",
-      "title": "网卡出入流量与 10Mbps 出网占比",
-      "description": "配置所选网卡累计字节。默认带宽上限 10Mbps；可在面板变量修改。不是云厂商计费或限速遥测。",
+      "title": "网卡出入流量与出网带宽占比",
+      "description": "配置所选网卡累计字节。限制线取面板变量 outbound_bps，当前 20000000 = 20Mbps（2026-10-14 由 10Mbps 升级）；变量存在 Grafana 库里，改仓库 JSON 不会自动更新。告警阈值为 15000000 bit/s（20Mbps 的 75%）。不是云厂商计费或限速遥测。",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
       "gridPos": {
         "x": 0,
-        "y": 118,
+        "y": 139,
         "w": 12,
         "h": 7
       },
@@ -2016,7 +2249,7 @@
       ]
     },
     {
-      "id": 38,
+      "id": 42,
       "type": "timeseries",
       "title": "TCP 重传与磁盘 I/O",
       "description": "",
@@ -2026,7 +2259,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 118,
+        "y": 139,
         "w": 12,
         "h": 7
       },
@@ -2090,7 +2323,7 @@
       ]
     },
     {
-      "id": 39,
+      "id": 43,
       "type": "timeseries",
       "title": "主机采集可用与采样滞后",
       "description": "",
@@ -2100,7 +2333,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 125,
+        "y": 146,
         "w": 12,
         "h": 7
       },
@@ -2155,12 +2388,12 @@
       ]
     },
     {
-      "id": 40,
+      "id": 44,
       "type": "text",
       "title": "测量口径与待补证据",
       "gridPos": {
         "x": 0,
-        "y": 132,
+        "y": 153,
         "w": 24,
         "h": 5
       },

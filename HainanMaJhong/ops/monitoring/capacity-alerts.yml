@@ -12,22 +12,22 @@ groups:
         labels: {severity: warning}
         annotations: {summary: '容量采样滞后超过 30 秒'}
       - alert: MahjongHttpSlow
-        expr: histogram_quantile(0.95, sum by (le, route) (rate(mahjong_http_response_seconds_bucket{job="hainan-mahjong"}[2m]))) > 0.5
+        expr: histogram_quantile(0.95, sum by (le, route) (rate(mahjong_http_response_seconds_bucket{job="hainan-mahjong",outcome="success"}[2m]))) > 0.5
         for: 2m
         labels: {severity: warning}
         annotations: {summary: 'HTTP 服务端处理 P95 超过 500ms'}
       - alert: MahjongHttpTailSlow
-        expr: histogram_quantile(0.99, sum by (le, route) (rate(mahjong_http_response_seconds_bucket{job="hainan-mahjong"}[2m]))) > 2
+        expr: histogram_quantile(0.99, sum by (le, route) (rate(mahjong_http_response_seconds_bucket{job="hainan-mahjong",outcome="success"}[2m]))) > 2
         for: 2m
         labels: {severity: warning}
         annotations: {summary: 'HTTP 服务端处理 P99 超过 2 秒'}
       - alert: MahjongHttpErrors
-        expr: sum(rate(mahjong_http_response_seconds_count{job="hainan-mahjong",outcome!="success"}[5m])) / sum(rate(mahjong_http_response_seconds_count{job="hainan-mahjong"}[5m])) > 0.001
+        expr: sum(rate(mahjong_http_response_seconds_count{job="hainan-mahjong",outcome!~"success|rate_limited"}[5m])) / sum(rate(mahjong_http_response_seconds_count{job="hainan-mahjong"}[5m])) > 0.001
         for: 5m
         labels: {severity: warning}
         annotations: {summary: 'HTTP 与业务失败率超过 0.1%，请区分认证失败与服务错误'}
       - alert: MahjongHttpErrorsBurst
-        expr: sum(rate(mahjong_http_response_seconds_count{job="hainan-mahjong",outcome!="success"}[1m])) / sum(rate(mahjong_http_response_seconds_count{job="hainan-mahjong"}[1m])) > 0.005
+        expr: sum(rate(mahjong_http_response_seconds_count{job="hainan-mahjong",outcome!~"success|rate_limited"}[1m])) / sum(rate(mahjong_http_response_seconds_count{job="hainan-mahjong"}[1m])) > 0.005
         for: 1m
         labels: {severity: warning}
         annotations: {summary: '一分钟 HTTP 与业务失败率超过 0.5%'}
@@ -35,6 +35,38 @@ groups:
         expr: sum(increase(mahjong_db_transaction_seconds_count{job="hainan-mahjong",outcome="error"}[2m])) > 0
         labels: {severity: critical}
         annotations: {summary: '结算或房间结束事务失败'}
+      - alert: MahjongAdmissionRejecting
+        expr: (sum by (group) (rate(mahjong_admission_requests_total{job="hainan-mahjong",outcome!="admitted"}[2m])) / sum by (group) (rate(mahjong_admission_requests_total{job="hainan-mahjong"}[2m])) > 0.05) and on (group) (sum by (group) (rate(mahjong_admission_requests_total{job="hainan-mahjong"}[2m])) > 1)
+        for: 2m
+        labels: {severity: warning}
+        annotations: {summary: '准入拒绝比例持续超过 5%，请检查分组速率、突发与客户端重试'}
+      - alert: MahjongSessionCloseFailed
+        expr: increase(mahjong_room_session_close_failures_total{job="hainan-mahjong"}[2m]) > 0
+        labels: {severity: critical}
+        annotations: {summary: '房间清理后场次结束写入失败，需核对日志中的 sessionId'}
+      - alert: MahjongOutboxDead
+        expr: mahjong_outbox_dead{job="hainan-mahjong"} > 0
+        labels: {severity: critical}
+        annotations: {summary: '房间清理补偿任务已耗尽重试，请核对 outbox DEAD 任务'}
+      - alert: MahjongOutboxLag
+        expr: mahjong_outbox_oldest_seconds{job="hainan-mahjong"} > 600
+        for: 1m
+        labels: {severity: warning}
+        annotations: {summary: '房间清理补偿任务积压超过两分钟'}
+      - alert: MahjongOutboxPollFailed
+        expr: mahjong_outbox_poll_healthy{job="hainan-mahjong"} == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations: {summary: '房间清理补偿轮询失败，检查数据库与表结构'}
+      - alert: MahjongAlertmanagerUnavailable
+        expr: up{job="alertmanager"} == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations: {summary: '邮件告警分发服务不可用，请检查独立值守渠道'}
+      - alert: MahjongNotificationFailed
+        expr: increase(alertmanager_notifications_failed_total{job="alertmanager"}[5m]) > 0
+        labels: {severity: critical}
+        annotations: {summary: '告警通知发送失败；此告警也可能无法通过同一故障邮件链路送达'}
       - alert: MahjongCpuHigh
         expr: 1 - rate(mahjong_host_cpu_ticks_idle{job="hainan-mahjong"}[2m]) / rate(mahjong_host_cpu_ticks_total{job="hainan-mahjong"}[2m]) > 0.75
         for: 3m
@@ -46,10 +78,10 @@ groups:
         labels: {severity: warning}
         annotations: {summary: '主机可用内存低于 256MiB'}
       - alert: MahjongOutboundNearLimit
-        expr: rate(mahjong_host_network_transmit_bytes{job="hainan-mahjong"}[2m]) * 8 > 7500000
+        expr: rate(mahjong_host_network_transmit_bytes{job="hainan-mahjong"}[2m]) * 8 > 15000000
         for: 2m
         labels: {severity: warning}
-        annotations: {summary: '出网流量持续超过 10Mbps 上限的 75%；带宽升级后须修改阈值'}
+        annotations: {summary: '出网流量持续超过 20Mbps 上限的 75%（15Mbps）；带宽再次变更后须同步阈值'}
       - alert: MahjongExternalProbeFailed
         expr: mahjong_redis_probe_up{job="hainan-mahjong"} == 0 or mahjong_mysql_probe_up{job="hainan-mahjong"} == 0
         for: 1m

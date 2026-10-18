@@ -9,6 +9,9 @@ import hainanMahjong.engine.model.Seat;
  * 牌局事件监听器（用于日志 / UI 展示）。
  */
 public interface GameListener {
+    /** Called on the engine thread at a stable decision boundary and while awaiting input. */
+    default void onIdle() {}
+
     void onShuffle(int deckSize);
 
     void onDeal(Seat dealer);

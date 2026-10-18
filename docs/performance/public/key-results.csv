@@ -1,0 +1,14 @@
+run,players,seconds,httpReportedCount,httpReportedFailures,worstP95Ms,originalResult,scope,sourceReport
+2026-10-09-baseline,192,300,36000,0,39.0,passed,old-baseline,HainanMaJhong/docs/线上压测对比_2026-10-11.md
+2026-10-11-v2-gzip,192,300,36001,8,1052.8,failed,cleanup-errors-original-result-preserved,HainanMaJhong/docs/线上压测对比_2026-10-11.md
+2026-10-12-p2-192,192,300,36001,0,32.6,passed,p2-enabled,HainanMaJhong/docs/线上压测复测_2026-10-12.md
+2026-10-12-p2-256,256,300,48001,0,34.9,passed,p2-enabled,HainanMaJhong/docs/线上压测复测_2026-10-12.md
+a3-attrib-320,320,300,60001,0,45.8,passed,no-extra-sampling,HainanMaJhong/docs/热点归属_2026-10-15.md
+f1-ab-256-delta,256,300,,,34.4,passed,delta-drain-22-seconds,HainanMaJhong/docs/Phase1测试报告_2026-10-15.md
+f2-ab-256-full,256,300,,,37.6,passed,full-drain-24-seconds,HainanMaJhong/docs/Phase1测试报告_2026-10-15.md
+g1-delta-320,320,300,,,39.8,passed,system-cpu-mean-0.57,HainanMaJhong/docs/Phase1测试报告_2026-10-15.md
+g3-delta-320,320,300,,,40.0,failed,drain-timeout-120.1-seconds,HainanMaJhong/docs/Phase1测试报告_2026-10-15.md
+R1-protection-off-warm,512,300,96001,0,229,failed,unmatched-broadcast-gate,HainanMaJhong/docs/准入保护验证_2026-10-15.md
+R2-protection-8-cold,512,,7504,499,11565,failed,cold-concurrency-and-retry-confounded,HainanMaJhong/docs/准入保护验证_2026-10-15.md
+R3-protection-48-cold,512,,8000,2,12202,failed,cold-inflight-2035,HainanMaJhong/docs/准入保护验证_2026-10-15.md
+R4-protection-48-warm,512,300,96001,0,261,failed,unmatched-broadcast-gate-final-http-errors-zero,HainanMaJhong/docs/准入保护验证_2026-10-15.md

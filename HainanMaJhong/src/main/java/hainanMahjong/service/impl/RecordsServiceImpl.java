@@ -76,7 +76,14 @@ public class RecordsServiceImpl implements RecordsService {
                 sessionIds.add(r.getSessionId());
             }
             // 昵称缓存：这一页里同一个人会出现很多次，一次请求只查一次库
-            Map<Long, String> nicks = new HashMap<>();
+            List<Long> nameIds = new ArrayList<>();
+            for (RecordsListVO record : records) {
+                try {
+                    for (Object id : mapper.readValue(record.getPlayerIds(), List.class))
+                        if (id instanceof Number) nameIds.add(((Number) id).longValue());
+                } catch (Exception ignored) { /* fillPlayers reports malformed metadata. */ }
+            }
+            Map<Long, String> nicks = nicknames(nameIds);
             fillPlayers(records, nicks);
             fillScoreAndRank(userId, records, sessionIds);
         }
@@ -198,7 +205,7 @@ public class RecordsServiceImpl implements RecordsService {
         List<RoundPlayerRowVO> rows = gameRoundsMapper.selectRoundsAll(sessionId);
 
         // ③ 本请求昵称缓存（同一 userId 只查一次库）
-        Map<Long, String> nicks = new HashMap<>();
+        Map<Long, String> nicks = nicknames(rows.stream().map(RoundPlayerRowVO::getUserId).toList());
 
         RecordDetailVO vo = new RecordDetailVO();
         vo.setRoomId(roomId);
@@ -366,6 +373,24 @@ public class RecordsServiceImpl implements RecordsService {
             name = u.getUsername();
         }
         return name == null || name.isEmpty() ? "玩家" + userId : name;
+    }
+
+    Map<Long, String> nicknames(Collection<Long> ids) {
+        Map<Long, String> names = new HashMap<>();
+        List<Long> humanIds = ids.stream().filter(Objects::nonNull).filter(id -> id > 0).distinct().toList();
+        // Chunk even the compatibility full-history endpoint; no unbounded SQL IN list.
+        for (int from = 0; from < humanIds.size(); from += 200) {
+            List<Long> batch = humanIds.subList(from, Math.min(from + 200, humanIds.size()));
+            for (long id : batch) names.put(id, "玩家" + id);
+            for (User user : userMapper.recordNames(batch)) {
+                String name = user.getNickname();
+                if (name == null || name.isEmpty()) name = user.getUsername();
+                if (name != null && !name.isEmpty()) names.put(user.getId(), name);
+            }
+        }
+        ids.stream().filter(Objects::nonNull).filter(id -> id <= 0).distinct()
+                .forEach(id -> names.put(id, nickname(id)));
+        return names;
     }
 
     /** 从本把参与者里按 userId 取昵称；取不到再回源。 */

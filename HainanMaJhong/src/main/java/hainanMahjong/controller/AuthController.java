@@ -9,6 +9,7 @@ import hainanMahjong.dto.UpdatePasswordDTO;
 import hainanMahjong.service.TokenService;
 import hainanMahjong.service.RoomService;
 import hainanMahjong.service.UserService;
+import hainanMahjong.service.RequestAdmissionGuard;
 import hainanMahjong.vo.TokenPair;
 import hainanMahjong.vo.UserVO;
 import lombok.extern.slf4j.Slf4j;
@@ -39,11 +40,14 @@ public class AuthController {
     private final UserService userService;
     private final TokenService tokenService;
     private final RoomService roomService;
+    private final RequestAdmissionGuard admission;
 
-    public AuthController(UserService userService, TokenService tokenService, RoomService roomService) {
+    public AuthController(UserService userService, TokenService tokenService, RoomService roomService,
+                          RequestAdmissionGuard admission) {
         this.userService = userService;
         this.tokenService = tokenService;
         this.roomService = roomService;
+        this.admission = admission;
     }
 
     @PostMapping("/register")
@@ -62,18 +66,20 @@ public class AuthController {
      * {@code kick}。旧设备因此会弹"该账号在别处登录"并退回登录页。</p>
      */
     @PostMapping("/login")
-    public Result<?> login(@Valid @RequestBody LoginDTO dto) {
-        UserVO user = userService.authenticate(dto);
-        TokenPair pair = tokenService.issue(user.getId(), user.getUsername(), user.getRole());
-        // 顺序很重要：先换会话（旧 token 作废），再踢旧连接。
-        // 反过来的话，旧设备被踢掉后可能立刻用旧 token 重连成功。
-        try {
-            roomService.kickUser(user.getId(), "该账号在别处登录，请重新登录");
-        } catch (Exception e) {
-            // 踢连接失败不能影响登录本身（新设备已经拿到 token 了）
-            log.warn("踢掉旧连接失败（不影响登录）：{}", e.getMessage());
+    public Result<?> login(@Valid @RequestBody LoginDTO dto, HttpServletRequest request) {
+        try (RequestAdmissionGuard.Permit ignored = admission.login(dto.getUsername(), request)) {
+            UserVO user = userService.authenticate(dto);
+            TokenPair pair = tokenService.issue(user.getId(), user.getUsername(), user.getRole());
+            // 顺序很重要：先换会话（旧 token 作废），再踢旧连接。
+            // 反过来的话，旧设备被踢掉后可能立刻用旧 token 重连成功。
+            try {
+                roomService.kickUser(user.getId(), "该账号在别处登录，请重新登录");
+            } catch (Exception e) {
+                // 踢连接失败不能影响登录本身（新设备已经拿到 token 了）
+                log.warn("踢掉旧连接失败（不影响登录）：{}", e.getMessage());
+            }
+            return Result.success(pair);
         }
-        return Result.success(pair);
     }
 
     /**

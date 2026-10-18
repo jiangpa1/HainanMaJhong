@@ -1,7 +1,7 @@
 """Read only the named smoke rooms; never print .env values or snapshot contents."""
 import json, os, subprocess, sys, time
 values = {}
-for line in open('/root/mahjong/.env'):
+for line in open(os.environ.get('LIFECYCLE_ENV_FILE', '.env'), encoding='utf-8-sig'):
     line = line.strip()
     if not line or line.startswith('#') or '=' not in line: continue
     key, value = line.split('=', 1); values[key.strip()] = value.strip().strip('\"\'')

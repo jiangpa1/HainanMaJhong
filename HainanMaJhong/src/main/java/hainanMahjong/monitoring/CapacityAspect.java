@@ -14,7 +14,7 @@ public class CapacityAspect {
     public CapacityAspect(CapacityMetrics metrics) { this.metrics = metrics; }
     @Around("execution(* hainanMahjong.mapper..*(..)) || execution(* com.baomidou.mybatisplus.core.mapper.BaseMapper+.*(..))")
     public Object database(ProceedingJoinPoint call) throws Throwable { return measure(call, "mahjong.db.query"); }
-    @Around("execution(* hainanMahjong.service.impl.RoundPersister.saveHand(..)) || execution(* hainanMahjong.service.impl.RoundPersister.disbandSession(..))")
+    @Around("execution(* hainanMahjong.service.impl.RoundPersister.saveHand(..)) || execution(* hainanMahjong.service.impl.RoundPersister.disbandSession(..)) || execution(* hainanMahjong.service.impl.RoundPersister.closeWithOutbox(..))")
     public Object transaction(ProceedingJoinPoint call) throws Throwable { return measure(call, "mahjong.db.transaction"); }
     @Around("execution(* hainanMahjong.repository.RoomSnapshotRepository.*(..))")
     public Object snapshot(ProceedingJoinPoint call) throws Throwable { return measure(call, "mahjong.room.snapshot"); }

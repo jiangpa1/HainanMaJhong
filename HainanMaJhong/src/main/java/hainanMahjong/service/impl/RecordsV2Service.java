@@ -15,13 +15,22 @@ import java.util.*;
 @Service
 @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
 public class RecordsV2Service {
+    private RecordProjection projection;
+    private RecordDetailCache detailCache;
+    @org.springframework.beans.factory.annotation.Value("${records.p2.cache.enabled:true}")
+    private boolean cacheEnabled = true;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setP2(RecordProjection projection, RecordDetailCache detailCache) {
+        this.projection=projection; this.detailCache=detailCache;
+    }
     private final GameSessionsMapper sessions;
     private final RecordsV2Mapper queries;
     private final RecordsServiceImpl legacy;
     private final ObjectMapper json = new ObjectMapper();
+    private final Object[] aggregateLocks = java.util.stream.IntStream.range(0,64).mapToObj(i -> new Object()).toArray();
     // 只保存数值统计和最高番描述，不保存个人昵称/权限。每次读之前必须 authorized。
     // 上限 512 场，60 秒固定寿命；新版本只聚合新增小局，冷启动/回读旧版本仍由 SQL 聚合。
-    private record Aggregate(int cutoff, long createdAt, List<Stats> players) {}
+    private record Aggregate(int cutoff, long revision, long createdAt, List<Stats> players) {}
     private final Map<Long, Aggregate> aggregates = Collections.synchronizedMap(
             new LinkedHashMap<Long, Aggregate>(16, 0.75f, true) {
                 @Override protected boolean removeEldestEntry(Map.Entry<Long, Aggregate> entry) { return size() > 512; }
@@ -36,11 +45,13 @@ public class RecordsV2Service {
     public Map<String, Object> list(long userId, int pageNum, int pageSize, Long readThroughSessionId) {
         range(pageNum, 1, 100000, "pageNum");
         range(pageSize, 1, 20, "pageSize");
-        long latest = queries.latestSession(userId);
+        boolean projected = projection != null && projection.reads();
+        long latest = projected ? projection.latestSession(userId) : queries.latestSession(userId);
         long cutoff = readThroughSessionId == null ? latest : readThroughSessionId;
         if (cutoff < 0 || cutoff > latest) throw bad("readThroughSessionId 不合法");
-        long total = queries.sessionCount(userId, cutoff);
-        List<RecordsListVO> rows = queries.sessions(userId, cutoff, pageSize, (long) (pageNum - 1) * pageSize);
+        long total = projected ? projection.count(userId, cutoff) : queries.sessionCount(userId, cutoff);
+        List<RecordsListVO> rows = projected ? projection.sessions(userId, cutoff, pageSize, (long) (pageNum - 1) * pageSize)
+                : queries.sessions(userId, cutoff, pageSize, (long) (pageNum - 1) * pageSize);
         Map<Long, List<Long>> participantIds = new HashMap<>();
         for (RecordsListVO row : rows) {
             GameSessions metadata = new GameSessions(); metadata.setPlayerIds(row.getPlayerIds());
@@ -49,14 +60,16 @@ public class RecordsV2Service {
             participantIds.put(row.getSessionId(), ids);
         }
         // 保持旧列表的批量聚合方式，避免分页 20 场引入逐场查询/最高番查询的 N+1 开销。
-        Map<Long, Map<Long, Integer>> totals = new HashMap<>();
-        if (!rows.isEmpty()) for (PlayerTotalVO player : sessions.selectTotals(rows.stream().map(RecordsListVO::getSessionId).toList()))
-            totals.computeIfAbsent(player.getSessionId(), k -> new HashMap<>()).put(player.getUserId(), player.getTotalScore());
-        Map<Long, String> names = new HashMap<>();
+        Map<Long, Map<Long, Long>> totals = new HashMap<>();
+        List<Long> sessionIds = rows.stream().map(RecordsListVO::getSessionId).toList();
+        if (projected) totals = projection.totals(sessionIds);
+        else if (!rows.isEmpty()) for (PlayerTotalVO player : sessions.selectTotals(sessionIds))
+            totals.computeIfAbsent(player.getSessionId(), k -> new HashMap<>()).put(player.getUserId(), (long) player.getTotalScore());
+        Map<Long, String> names = legacy.nicknames(participantIds.values().stream().flatMap(List::stream).toList());
         for (RecordsListVO row : rows) {
-            Map<Long, Integer> scores = totals.getOrDefault(row.getSessionId(), Map.of());
-            int mine = scores.getOrDefault(userId, 0);
-            row.setTotalScore(mine);
+            Map<Long, Long> scores = totals.getOrDefault(row.getSessionId(), Map.of());
+            long mine = scores.getOrDefault(userId, 0L);
+            row.setTotalScore(Math.toIntExact(mine));
             row.setRank(1 + (int) scores.entrySet().stream().filter(p -> p.getKey() != userId && p.getValue() > mine).count());
             row.setPlayers(participantIds.get(row.getSessionId()).stream().map(id -> names.computeIfAbsent(id, legacy::nickname)).toList());
         }
@@ -107,8 +120,9 @@ public class RecordsV2Service {
         if (!ids.isEmpty()) {
             rounds = queries.summaries(sessionId, ids);
             Map<Long, List<Score>> scores = new HashMap<>();
-            Map<Long, String> names = new HashMap<>();
-            for (Score score : queries.scores(ids)) {
+            List<Score> allScores = queries.scores(ids);
+            Map<Long, String> names = legacy.nicknames(allScores.stream().map(Score::getUserId).toList());
+            for (Score score : allScores) {
                 scores.computeIfAbsent(score.getRoundId(), k -> new ArrayList<>()).add(score);
             }
             if (rounds.size() != ids.size()) throw new BusinessException(500, "小局数据不完整");
@@ -138,11 +152,14 @@ public class RecordsV2Service {
         range(roundNum, 1, Integer.MAX_VALUE, "roundNum");
         int cutoff = cutoff(readThroughRoundNum, queries.latestRound(sessionId));
         if (roundNum > cutoff) throw new BusinessException(404, "该小局不在读取范围内");
-        List<RoundPlayerRowVO> rows = queries.detail(sessionId, roundNum, cutoff);
+        long revision = projection != null && projection.writes() ? projection.revision(sessionId) : 0;
+        List<RoundPlayerRowVO> rows = detailCache != null && cacheEnabled && revision > 0
+                ? detailCache.get(new RecordDetailCache.Key(sessionId,roundNum,revision), () -> queries.detail(sessionId,roundNum,cutoff))
+                : queries.detail(sessionId, roundNum, cutoff);
         if (rows.isEmpty()) throw new BusinessException(404, "小局不存在");
         complete(rows.stream().map(RoundPlayerRowVO::getUserId).toList(), rows.stream().map(RoundPlayerRowVO::getSeat).toList());
         return Map.of("sessionId", sessionId, "readThroughRoundNum", cutoff, "version", version(sessionId, cutoff),
-                "round", legacy.buildRounds(userId, rows, new HashMap<>()).get(0));
+                "round", legacy.buildRounds(userId, rows, legacy.nicknames(rows.stream().map(RoundPlayerRowVO::getUserId).toList())).get(0));
     }
 
     private GameSessions authorized(long sessionId, long userId) {
@@ -169,6 +186,7 @@ public class RecordsV2Service {
         if (cutoff > 0) for (Stats stats : aggregate(session.getId(), cutoff)) totals.put(stats.getUserId(), stats);
         List<Stats> out = new ArrayList<>(4);
         List<Long> ids = playerIds(session);
+        names.putAll(legacy.nicknames(ids));
         for (int seat = 0; seat < ids.size(); seat++) {
             long id = ids.get(seat);
             Stats stats = totals.getOrDefault(id, new Stats());
@@ -183,9 +201,26 @@ public class RecordsV2Service {
     }
 
     private List<Stats> aggregate(long sessionId, int cutoff) {
+        synchronized(aggregateLocks[Math.floorMod(Long.hashCode(sessionId),aggregateLocks.length)]) {
+            return aggregateLocked(sessionId,cutoff);
+        }
+    }
+
+    private List<Stats> aggregateLocked(long sessionId, int cutoff) {
+        if (projection != null && projection.reads()) {
+            List<Stats> stored = projection.stats(sessionId,cutoff);
+            if (stored != null) {
+                for (Stats s : stored) {
+                    List<String> fans = legacy.parseFanTypes(s.getHighestFan());
+                    s.setHighestFan(s.getHighestFanValue()>0 ? (fans.isEmpty()?"平胡":String.join("、",fans)) : "无");
+                }
+                return stored;
+            }
+        }
         long now = System.currentTimeMillis();
+        long revision = projection != null && projection.writes() ? projection.revision(sessionId) : 0;
         Aggregate cached = aggregates.get(sessionId);
-        boolean reusable = cached != null && now - cached.createdAt() < 60000 && cached.cutoff() <= cutoff;
+        boolean reusable = cacheEnabled && cached != null && cached.revision() == revision && now - cached.createdAt() < 60000 && cached.cutoff() <= cutoff;
         if (reusable && cached.cutoff() == cutoff) return cached.players().stream().map(this::copyStats).toList();
         Map<Long, Stats> merged = new HashMap<>();
         if (reusable) for (Stats stats : cached.players()) merged.put(stats.getUserId(), copyStats(stats));
@@ -209,8 +244,9 @@ public class RecordsV2Service {
         // 旧截止点不能覆盖较新缓存；并发请求即使竞争，也只缓存完整且不可变的截止点。
         synchronized (aggregates) {
             Aggregate current = aggregates.get(sessionId);
-            if (current == null || now - current.createdAt() >= 60000 || current.cutoff() <= cutoff)
-                aggregates.put(sessionId, new Aggregate(cutoff, reusable ? cached.createdAt() : now,
+            int descriptionBytes = values.stream().mapToInt(s -> s.getHighestFan()==null?0:s.getHighestFan().length()*2).sum();
+            if (cacheEnabled && descriptionBytes <= 8192 && (current == null || current.revision() != revision || now - current.createdAt() >= 60000 || current.cutoff() <= cutoff))
+                aggregates.put(sessionId, new Aggregate(cutoff, revision, reusable ? cached.createdAt() : now,
                         values.stream().map(this::copyStats).toList()));
         }
         return values;
@@ -233,7 +269,13 @@ public class RecordsV2Service {
         return cutoff;
     }
 
-    private String version(long sessionId, int cutoff) { return sessionId + ":" + cutoff; }
+    private String version(long sessionId, int cutoff) {
+        return sessionId + ":" + cutoff + (projection != null && projection.writes() ? ":" + projection.revision(sessionId) : "");
+    }
+    public void invalidate(long sessionId) {
+        aggregates.remove(sessionId);
+        if(detailCache != null) detailCache.invalidate(sessionId);
+    }
     private void complete(List<Long> ids, List<Integer> seats) {
         if (ids.size() != 4 || ids.contains(null) || new HashSet<>(ids).size() != 4 || !new HashSet<>(seats).equals(Set.of(0,1,2,3)))
             throw new BusinessException(500, "小局四家分数不完整");

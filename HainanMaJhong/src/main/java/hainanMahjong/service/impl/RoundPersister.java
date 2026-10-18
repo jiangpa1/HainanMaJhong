@@ -29,6 +29,24 @@ import java.util.List;
  */
 @Service
 public class RoundPersister {
+    private RoomCloseOutbox closeOutbox;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setCloseOutbox(RoomCloseOutbox closeOutbox) { this.closeOutbox = closeOutbox; }
+
+    /** The event and session close commit or roll back together. Redis is touched after commit. */
+    @Transactional
+    public void closeWithOutbox(long sessionId, String roomCode, String generation) {
+        disbandSession(sessionId);
+        if (closeOutbox == null) throw new IllegalStateException("Room close outbox unavailable");
+        closeOutbox.enqueue(sessionId, roomCode, generation);
+    }
+
+    private RecordProjection projection;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setRecordProjection(RecordProjection projection) { this.projection = projection; }
+    private RecordsV2Service records;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setRecordsV2Service(RecordsV2Service records) { this.records = records; }
     private hainanMahjong.monitoring.CapacityMetrics metrics;
     @org.springframework.beans.factory.annotation.Autowired
     public void setCapacityMetrics(hainanMahjong.monitoring.CapacityMetrics metrics) { this.metrics = metrics; }
@@ -47,6 +65,7 @@ public class RoundPersister {
      *
      * @param playerIds 四个座位的 userId（机器人是负数），序列化成 JSON 存进 {@code player_ids}
      */
+    @Transactional
     public long createSession(String roomId, long creatorId, List<Long> playerIds) {
         String json;
         try {
@@ -56,12 +75,26 @@ public class RoundPersister {
         }
         GameSessionsMapper.SessionInsert row = new GameSessionsMapper.SessionInsert();
         sessions.insertSession(row, roomId, creatorId, json);
+        if (row.id != null && projection != null && projection.writes()) projection.create(row.id, playerIds);
         return row.id == null ? -1L : row.id;
     }
 
     /** 玩家中途退出：标记该场为异常解散。 */
+    @Transactional
     public void disbandSession(long sessionId) {
-        sessions.disbandSession(sessionId);
+        // The conditional UPDATE locks the same session row as saveHand. Replays are safe.
+        int changed = sessions.disbandSession(sessionId);
+        if (changed == 0) {
+            GameSessions existing = sessions.lockSession(sessionId);
+            if (existing == null || existing.getEndTime() == null)
+                throw new IllegalStateException("场次结束状态未写入 sessionId=" + sessionId);
+        }
+        if (records != null && org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                new org.springframework.transaction.support.TransactionSynchronization() {
+                    @Override public void afterCommit() { records.invalidate(sessionId); }
+                });
+        }
     }
 
     public GameSessions sessionForRestore(long sessionId) {
@@ -95,6 +128,15 @@ public class RoundPersister {
         // ① 找/建本把
         Long roundId = rounds.findRoundId(sessionId, roundNum);
         if (roundId != null) return roundId; // 已提交的结算不再覆盖或重复计入
+        if (scores == null || scores.size() != 4 || scores.stream().map(GameRoundsMapper.ScoreRow::userId).distinct().count() != 4
+                || !scores.stream().map(GameRoundsMapper.ScoreRow::seat).collect(java.util.stream.Collectors.toSet()).equals(java.util.Set.of(0,1,2,3)))
+            throw new IllegalArgumentException("结算必须包含四家唯一玩家和座位");
+        if (projection != null && projection.writes()) {
+            List<Long> ids = projection.players(session.getPlayerIds());
+            for (GameRoundsMapper.ScoreRow score : scores)
+                if (ids.get(score.seat()) != score.userId()) throw new IllegalArgumentException("结算成员与会话不一致");
+            projection.ensure(session);
+        }
         GameRoundsMapper.RoundInsert row = new GameRoundsMapper.RoundInsert();
         row.sessionId = sessionId;
         row.roundNum = roundNum;
@@ -121,10 +163,21 @@ public class RoundPersister {
 
         // ③ 推进进度
         sessions.updateCurrentRound(sessionId, roundNum);
+        if (projection != null && projection.writes()) {
+            // Lower round numbers indicate a historical insertion; rebuild also restores fan tie ordering.
+            if (roundNum < rounds.lastCommittedRound(sessionId)) projection.rebuild(session);
+            else projection.append(sessionId, roundNum, totalFan, fanInfoJson, scores);
+        }
         if (metrics != null && org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
             org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
                 new org.springframework.transaction.support.TransactionSynchronization() {
                     @Override public void afterCommit() { metrics.count("mahjong.game.rounds.committed"); }
+                });
+        }
+        if (records != null && org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                new org.springframework.transaction.support.TransactionSynchronization() {
+                    @Override public void afterCommit() { records.invalidate(sessionId); }
                 });
         }
         return roundId;
