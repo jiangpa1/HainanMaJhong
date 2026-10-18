@@ -1,6 +1,6 @@
-# 海南麻将：当前交接
+# 当前实现状态
 
-更新：2026-10-12。仓库根为 F:/HainanMaJhong2，实际 Maven/Vue 项目为 HainanMaJhong。
+更新：2026-10-12。Maven / Vue 工程位于 `HainanMaJhong/`。
 
 ## 当前状态
 

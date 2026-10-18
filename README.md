@@ -115,24 +115,11 @@ cd ..
 ./ops/build-release.ps1 -JavaHome '<JDK17目录>' -Maven '<mvn.cmd路径>'
 ```
 
-产出 `target/HainanMaJHong2-1.0-SNAPSHOT.jar` 与 SHA256/源码清单。当前构建对应 92 项测试、0 失败、1 跳过；构建脚本编译但不运行测试。运行与验收见[项目说明](HainanMaJHong/README.md)。
+产出 `target/HainanMaJHong2-1.0-SNAPSHOT.jar` 与 SHA256/源码清单。当前构建对应 92 项测试、0 失败、1 跳过；构建脚本编译但不运行测试。运行与验收见[项目说明](HainanMaJhong/README.md)。
 
 部署校验以进程实际打开文件的 SHA-256 为准（`sha256sum /proc/$(systemctl show mahjong -p MainPID --value)/fd/N`），日志轮转由 logrotate 管理。
 
 > 容量原始数据（测试账号、token、逐轮日志）不公开，仓库仅保留方法论、脚本与结论；`docs/performance/private/**` 已排除。
-
----
-
-## 未完成项
-
-| 级别 | 事项 | 现状 |
-|---|---|---|
-| P0 | `round-drain-timeout` 偶发 | 埋点已上线（默认关闭），多轮未复现，未定位 |
-| P1 | 告警送达 | `MahjongAdmissionRejecting` 已收到 4 封；`MahjongCpuHigh` 未收到，未定因 |
-| P1 | 纯净边界曲线 | 待每档「重启 → ramp 预热 → 稳态 90 秒」，未执行 |
-| P2 | MySQL 不可用时的关闭补偿 | 仅有设计（本地 WAL + 定时对账），未实现 |
-
-期间修复两处使测量失真的工具缺陷：路由正则截断导致两条会话级路由未进入统计；阶梯加压中 429 被误判为窗口中止。历史轮次结论不重算，详见[性能测试工具已知偏差](HainanMaJHong/docs/性能测试工具已知偏差.md)。
 
 ---
 
@@ -141,9 +128,9 @@ cd ..
 | 内容 | 入口 |
 |---|---|
 | 代码阅读路径 | [代码阅读指南](docs/CODE-READING-GUIDE.md) → [RoomManager 精读](docs/ROOMMANAGER-READING-GUIDE.md) → [多人流程](docs/MULTIPLAYER-READING-GUIDE.md) |
-| 压测到优化与反证的全过程 | [方法论与实测证据](HainanMaJHong/docs/八天并发优化方法论_2026-10-16.md) |
-| 并发模式与各自失效条件 | [并发模式与失效清单](HainanMaJHong/docs/并发模式与失效清单.md) |
-| 额度、护栏与回退 | [运行边界与线上额度](HainanMaJHong/docs/运行边界与线上额度_2026-10-16.md) |
-| 关闭补偿设计与状态 | [房间收尾 Outbox](HainanMaJHong/docs/房间收尾Outbox_2026-10-17.md) |
-| 复现压测与公开结果 | [压测入口](docs/performance/README.md) · [公开结果](docs/performance/public/README.md) · [JMeter 同画像](HainanMaJHong/ops/loadtest/jmeter/README.md) |
-| 全部文档 | [文档总索引](HainanMaJHong/docs/README.md) |
+| 压测到优化与反证的全过程 | [方法论与实测证据](HainanMaJhong/docs/八天并发优化方法论_2026-10-16.md) |
+| 并发模式与各自失效条件 | [并发模式与失效清单](HainanMaJhong/docs/并发模式与失效清单.md) |
+| 额度、护栏与回退 | [运行边界与线上额度](HainanMaJhong/docs/运行边界与线上额度_2026-10-16.md) |
+| 关闭补偿设计与状态 | [房间收尾 Outbox](HainanMaJhong/docs/房间收尾Outbox_2026-10-17.md) |
+| 复现压测与公开结果 | [压测入口](docs/performance/README.md) · [公开结果](docs/performance/public/README.md) · [JMeter 同画像](HainanMaJhong/ops/loadtest/jmeter/README.md) |
+| 全部文档 | [文档总索引](HainanMaJhong/docs/README.md) |

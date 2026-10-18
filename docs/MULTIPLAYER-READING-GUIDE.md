@@ -1,6 +1,6 @@
 # 海南麻将 · 多人联机模块 代码导读
 
-> 面向：想读懂这个项目联机部分的人（也适用于面试前复习 + 答辩）
+> **适用范围**：多人联机模块——连接鉴权、座位绑定、托管切换与断线重连。
 > 基准：2026-09-23，已完成分层重构（`service` / `service.impl` / `room` 三层）
 > 前提：**本文只讲联机模块**；牌局规则本身（番型/结算/胡牌判定）见 `HainanScore`、`HainanFan`、`HuLib`，不在这里展开
 
@@ -121,7 +121,7 @@
 这是引擎与外界的**唯一契约**，共 3 个接口：
 
 ```java
-// 引擎问"你要出哪张牌" —— 阻塞式询问
+// 引擎发起出牌询问 —— 阻塞式等待
 interface PlayerController {
     void onDiscardTurn(Seat, List<Integer> hand, int drawnTile, List<Integer> banned, Responder);
     void onActionChance(Seat, int discardedTile, List<Action> options, Responder);
@@ -130,7 +130,7 @@ interface PlayerController {
     default void prepareDiscard(boolean canReport);
 }
 
-// 引擎等"你的答复"
+// 引擎等待应答
 interface Responder {
     void discard(int tileKind);
     void act(Action action);
@@ -370,7 +370,7 @@ sessionId → gameUserOfSession → userId → codeByUser → 房间码 → room
 
 ---
 
-## 9. 已知缺陷与边界（面试会被追问）
+## 9. 已知缺陷与边界
 
 | # | 问题 | 位置 | 说明 |
 | --- | --- | --- | --- |
@@ -410,7 +410,7 @@ sessionId → gameUserOfSession → userId → codeByUser → 房间码 → room
 
 ---
 
-## 12. 一分钟自检（能答上来就算读懂了）
+## 12. 检查问题
 
 1. 引擎为什么会阻塞？谁把它桥接成异步的？
 2. 玩家断线后，引擎侧看到的是什么？为什么引擎不需要知道这件事？
