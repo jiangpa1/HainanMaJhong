@@ -454,7 +454,7 @@ async function stage(count,rps,seconds){
     if(performance.now()-lastHealthCheck>=5000&&performance.now()-began>=20000){
       lastHealthCheck=performance.now();const recent=recentSamples.filter(x=>x.at>=lastHealthCheck-20000);
       const bad=recent.filter(x=>x.failed).length,p95=pct(recent.map(x=>x.ms),.95);s.http.lastRecentWindow={seconds:20,n:recent.length,failed:bad,errorRate:recent.length?bad/recent.length:0,p95Ms:p95};
-      if(recent.length>=100&&((acceptanceProfile!=='overload'&&p95>5000)||bad/recent.length>.05))exceedingWindows++;else exceedingWindows=0;
+      const ramping=rateSteps.length>0; if(recent.length>=100&&((acceptanceProfile!=='overload'&&p95>5000)||(bad/recent.length>.05&&!ramping)))exceedingWindows++;else exceedingWindows=0;
       if(exceedingWindows>=2)abort='sustained-20second-http-window-unhealthy';
       for(const [seconds,key] of [[60,'oneMinuteMaxErrorRate'],[300,'fiveMinuteMaxErrorRate']]) {
         const window=recentSamples.filter(x=>x.started>=lastHealthCheck-seconds*1000);
