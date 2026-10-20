@@ -132,5 +132,5 @@ cd ..
 | 并发模式与各自失效条件 | [并发模式与失效清单](HainanMaJhong/docs/并发模式与失效清单.md) |
 | 额度、护栏与回退 | [运行边界与线上额度](HainanMaJhong/docs/运行边界与线上额度_2026-10-16.md) |
 | 关闭补偿设计与状态 | [房间收尾 Outbox](HainanMaJhong/docs/房间收尾Outbox_2026-10-17.md) |
-| 复现压测与公开结果 | [压测入口](docs/performance/README.md) · [公开结果](docs/performance/public/README.md) · [JMeter 同画像](HainanMaJhong/ops/loadtest/jmeter/README.md) |
+| 复现压测与公开结果（152 轮逐轮汇总） | [压测入口](docs/performance/README.md) · [公开结果](HainanMaJHong/docs/压测记录汇总.md) · [JMeter 同画像](HainanMaJhong/ops/loadtest/jmeter/README.md) |
 | 全部文档 | [文档总索引](HainanMaJhong/docs/README.md) |
