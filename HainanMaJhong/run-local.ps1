@@ -12,6 +12,7 @@
 param(
     [string]$DbHost    = '192.168.133.128',
     [string]$DbName    = 'hainan_majong',
+    [string]$JavaHome  = $env:JAVA_HOME,
     [string]$RedisHost = $null,
     [switch]$Probe
 )
@@ -24,11 +25,13 @@ $repo    = Split-Path $root -Parent
 $envFile = Join-Path $root '.env'
 $jar     = Join-Path $root 'target\HainanMaJhong2-1.0-SNAPSHOT.jar'
 if (-not (Test-Path -LiteralPath $jar)) { $jar = Join-Path $root 'release\HainanMaJhong2-1.0-SNAPSHOT.jar' }
-$javaExe = 'C:\Users\ASUS\.jdks\ms-17.0.20.1-1\bin\java.exe'
+$javaExe = if ($JavaHome) { Join-Path $JavaHome 'bin/java.exe' } else { 'java' }
 if (-not $RedisHost) { $RedisHost = $DbHost }
 
 # ---------- 1. preflight ----------
-if (-not (Test-Path $javaExe)) { throw "JDK 17 not found: $javaExe  (dir name has the -1 suffix!)" }
+$javaVersion = (& $javaExe --version 2>&1 | Out-String)
+if ($LASTEXITCODE -ne 0 -or $javaVersion -notmatch '(?m)^(?:openjdk|java)\s+(\d+)') { throw 'JDK 21 is required; set JAVA_HOME.' }
+if ([int]$Matches[1] -lt 21) { throw 'JDK 21 or newer is required; set JAVA_HOME.' }
 if (-not (Test-Path $envFile)) { throw ".env not found: $envFile  (needs DB_PASSWORD / REDIS_PASSWORD)" }
 
 $cfg = @{}
@@ -89,7 +92,7 @@ $logDir = Join-Path $repo 'docs'
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Force -Path $logDir | Out-Null }
 $log = Join-Path $logDir 'stage0-run.log'
 
-Write-Host "[2/3] starting app with JDK 17 ..." -ForegroundColor Cyan
+Write-Host "[2/3] starting app with JDK 21 ..." -ForegroundColor Cyan
 Write-Host "      DB    = $DbHost/$DbName"    -ForegroundColor DarkGray
 Write-Host "      Redis = ${RedisHost}:6379"   -ForegroundColor DarkGray
 Write-Host "      log   = $log"               -ForegroundColor DarkGray

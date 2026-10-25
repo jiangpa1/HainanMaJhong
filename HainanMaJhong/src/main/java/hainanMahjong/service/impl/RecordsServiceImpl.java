@@ -12,7 +12,6 @@ import hainanMahjong.mapper.UserMapper;
 import hainanMahjong.pojo.User;
 import hainanMahjong.pojo.GameSessions;
 import hainanMahjong.exception.BusinessException;
-import hainanMahjong.service.RecordsService;
 import hainanMahjong.vo.recordvo.PlayerTotalVO;
 import hainanMahjong.vo.recordvo.RoundPlayerRowVO;
 import hainanMahjong.vo.recordvo.RecordDetailItemVO;
@@ -45,7 +44,7 @@ import java.util.TreeMap;
  */
 @Service
 @Slf4j
-public class RecordsServiceImpl implements RecordsService {
+public class RecordsServiceImpl {
 
     private final GameSessionsMapper gameSessionsMapper;
     private final GameRoundsMapper gameRoundsMapper;
@@ -61,8 +60,6 @@ public class RecordsServiceImpl implements RecordsService {
     }
 
     // ==================== 列表页 ====================
-
-    @Override
     public PageResult<RecordsListVO> selectRecordsList(long userId, PageQueryDTO dto) {
         // ① 分页查房间列表（插件改 SQL 加 LIMIT，并回填 total）
         Page<RecordsListVO> page = new Page<>(dto.getPageNum(), dto.getPageSize());
@@ -170,8 +167,6 @@ public class RecordsServiceImpl implements RecordsService {
     }
 
     // ==================== 详情页 ====================
-
-    @Override
     public RecordDetailVO selectByRoom(String roomId, Long userId, boolean needNotFoundFlag) {
         Long sessionId = gameSessionsMapper.selectSessionIdByRoomId(roomId);
         if (sessionId == null) {
@@ -179,8 +174,6 @@ public class RecordsServiceImpl implements RecordsService {
         }
         return selectDetail(sessionId, userId, false);
     }
-
-    @Override
     public RecordDetailVO selectDetail(long sessionId, Long userId, boolean needNotFoundFlag) {
         // ① 房间码（顺带校验 session 是否存在：-1 是"未创建"的哨兵值）
         String roomId = sessionId > 0 ? gameSessionsMapper.selectRoomIdById(sessionId) : null;

@@ -2,149 +2,106 @@ package hainanMahjong.engine;
 
 import hainanMahjong.engine.model.Seat;
 import hainanMahjong.engine.port.GameListener;
-
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.function.Consumer;
 
-/**
- * 引擎的"带超时询问"机制。
- *
- * <p><b>这是整个项目最微妙的并发点</b>，抽出来单独成类是为了让它能被看懂、被测试：</p>
- *
- * <ul>
- *   <li>引擎线程调 {@link #prompt} 后<b>阻塞</b>在 {@link CountDownLatch#await()} 上；</li>
- *   <li>应答来自<b>另外两条线程</b>之一：
- *       WebSocket 线程（玩家出牌）或 {@code mahjong-timer} 线程（超时）。</li>
- * </ul>
- *
- * <p>用 {@code CountDownLatch(1)} + 一次性开关（{@code done[0]}）保证
- * <b>先到者生效、后到者被丢弃</b> —— 玩家在超时后一秒才出牌，那次出牌会被安全忽略。</p>
- *
- * <p>{@code pendingForce} 保存当前这把的"强制应答"闭包，供 {@link #forceNow()}
- * 在 {@code cancel()} 时立即唤醒引擎线程，避免它一直等到超时。</p>
- *
- * <p>从 {@code RoomManager} 抽出，逻辑逐字保留。</p>
- */
+/** A decision completes once; replies and deadlines continue on the owning mailbox. */
 public class PromptSupport {
-    private volatile boolean closed;
-
-    /** 定时器；为 null 时不启用超时（只等应答）。 */
+    private final java.util.concurrent.locks.ReentrantLock decisionLock = new java.util.concurrent.locks.ReentrantLock();
     private final ScheduledExecutorService scheduler;
-
-    /** 超时需要通知的监听器。 */
     private final GameListener listener;
-
-    /** 当前这把询问的"强制应答"闭包；无询问时为 null。 */
-    private volatile Runnable pendingForce;
+    private final Executor events;
+    private final boolean ownsScheduler;
+    private boolean closed;
+    private Pending<?> pending;
 
     public PromptSupport(ScheduledExecutorService scheduler, GameListener listener) {
+        this(scheduler, listener, Runnable::run, true);
+    }
+
+    public PromptSupport(GameListener listener, Executor events) {
+        this(RoomEventLoop.timer(), listener, events, false);
+    }
+
+    private PromptSupport(ScheduledExecutorService scheduler, GameListener listener,
+                          Executor events, boolean ownsScheduler) {
         this.scheduler = scheduler;
         this.listener = listener;
-        if (scheduler instanceof java.util.concurrent.ScheduledThreadPoolExecutor executor)
-            executor.setRemoveOnCancelPolicy(true);
+        this.events = events;
+        this.ownsScheduler = ownsScheduler;
+        if (scheduler instanceof ScheduledThreadPoolExecutor executor) executor.setRemoveOnCancelPolicy(true);
+    }
+
+    private final class Pending<T> {
+        final Seat seat;
+        final String what;
+        final T forced;
+        final Consumer<T> continuation;
+        ScheduledFuture<?> timer;
+        boolean done;
+        Pending(Seat seat, String what, T forced, Consumer<T> continuation) {
+            this.seat = seat; this.what = what; this.forced = forced; this.continuation = continuation;
+        }
+        void complete(T value, boolean timeout) {
+            decisionLock.lock();
+            try {
+                if (done) return;
+                done = true;
+                if (timer != null) timer.cancel(false);
+                if (pending == this) pending = null;
+            } finally { decisionLock.unlock(); }
+            events.execute(() -> {
+                if (timeout) listener.onTimeout(seat, what);
+                continuation.accept(value);
+            });
+        }
+        void force() { complete(forced, true); }
+    }
+
+    public <T> void promptAsync(Seat seat, String what, long timeoutMs,
+                                Consumer<Consumer<T>> body, T forced, Consumer<T> continuation) {
+        Pending<T> request = new Pending<>(seat, what, forced, continuation);
+        decisionLock.lock();
+        try {
+            if (closed) { events.execute(() -> continuation.accept(forced)); return; }
+            if (pending != null) throw new IllegalStateException("A decision is already pending");
+            pending = request;
+            if (scheduler != null && timeoutMs > 0) {
+                try { request.timer = scheduler.schedule(request::force, timeoutMs, TimeUnit.MILLISECONDS); }
+                catch (RejectedExecutionException e) { request.force(); }
+            }
+        } finally { decisionLock.unlock(); }
+        try {
+            listener.onIdle();
+            body.accept(value -> request.complete(value, false));
+        } catch (Throwable ex) { request.force(); }
+    }
+
+    /** Standalone compatibility adapter. Multiplayer uses promptAsync. */
+    public <T> T prompt(Seat seat, String what, long timeoutMs, Consumer<Consumer<T>> body, T forced) {
+        CompletableFuture<T> result = new CompletableFuture<>();
+        promptAsync(seat, what, timeoutMs, body, forced, result::complete);
+        return result.join();
     }
 
     public int pendingTimerCount() {
-        return scheduler instanceof java.util.concurrent.ScheduledThreadPoolExecutor executor ? executor.getQueue().size() : 0;
+        decisionLock.lock();
+        try {
+            return pending != null && pending.timer != null && !pending.timer.isDone() ? 1 : 0;
+        } finally { decisionLock.unlock(); }
     }
 
-    /**
-     * 向控制器发起一次决策请求，带超时。控制器通过 {@code reply} 回调应答；
-     * 超时则用 {@code forced} 强制值应答。
-     *
-     * @param seat      本回合的座位（仅用于超时通知）
-     * @param what      动作名（如"出牌"），仅用于超时通知
-     * @param timeoutMs 超时毫秒；&lt;=0 或 scheduler 为空则不启用超时
-     * @param body      发起询问的逻辑：拿到的 {@code Consumer} 就是应答入口
-     * @param forced    超时后使用的强制值
-     */
-    public <T> T prompt(Seat seat, String what, long timeoutMs,
-                        Consumer<Consumer<T>> body, T forced) {
-        if (closed) return forced;
-        final Object lock = new Object();
-        final boolean[] done = {false};
-        final Object[] box = new Object[1];
-        final boolean[] forcedFlag = {false};
-        final CountDownLatch latch = new CountDownLatch(1);
-
-        final Consumer<T> reply = value -> {
-            synchronized (lock) {
-                if (done[0]) return;
-                done[0] = true;
-                box[0] = value;
-            }
-            latch.countDown();
-        };
-
-        final Runnable force = () -> {
-            synchronized (lock) {
-                if (done[0]) return;
-                done[0] = true;
-                box[0] = forced;
-                forcedFlag[0] = true;
-            }
-            latch.countDown();
-        };
-        pendingForce = force;
-
-        ScheduledFuture<?> f = null;
-        if (closed) {
-            force.run();
-        } else if (scheduler != null && timeoutMs > 0) {
-            try {
-                f = scheduler.schedule(force, timeoutMs, TimeUnit.MILLISECONDS);
-            } catch (java.util.concurrent.RejectedExecutionException e) {
-                force.run(); // 取消与注册超时任务并发，不再阻塞等待
-            }
-        }
-        try {
-            listener.onIdle();
-            body.accept(reply);
-        } catch (Throwable ex) {
-            force.run();
-        }
-        try {
-            while (!latch.await(1, TimeUnit.SECONDS)) {
-                // Snapshot/resync work stays on the owning engine thread, never the timer
-                // or WS thread reading mutable players concurrently with an action.
-                listener.onIdle();
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-        if (f != null) {
-            f.cancel(false);
-        }
-        pendingForce = null;
-        if (forcedFlag[0]) {
-            listener.onTimeout(seat, what);
-        }
-        @SuppressWarnings("unchecked")
-        T r = (T) box[0];
-        return r;
-    }
-
-    /**
-     * 立即用"强制值"唤醒引擎线程（{@code cancel()} 时调用）。
-     *
-     * <p>当前没有询问时是 no-op。</p>
-     */
     public void forceNow() {
-        Runnable f = pendingForce;
-        if (f != null) {
-            f.run();
-        }
+        Pending<?> request;
+        decisionLock.lock();
+        try { request = pending; } finally { decisionLock.unlock(); }
+        if (request != null) request.force();
     }
 
-    /** 关闭内部定时器（每把结束时调用）。 */
     public void shutdown() {
-        closed = true;
+        decisionLock.lock();
+        try { closed = true; } finally { decisionLock.unlock(); }
         forceNow();
-        if (scheduler != null) {
-            scheduler.shutdownNow();
-        }
+        if (ownsScheduler && scheduler != null) scheduler.shutdownNow();
     }
 }

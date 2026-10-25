@@ -15,7 +15,7 @@ public class RecordDetailCache {
     public record Key(long sessionId, int roundNum, long revision) {}
     private record Entry(byte[] bytes, long expiresAt) {}
     private final Map<Key,Entry> entries = new LinkedHashMap<>(16,.75f,true);
-    private final Object[] stripes = new Object[64];
+    private final java.util.concurrent.locks.ReentrantLock[] stripes = new java.util.concurrent.locks.ReentrantLock[64];
     private final ObjectMapper json = new ObjectMapper();
     private final int maxEntries, maxItemBytes, maxBytes;
     private final long ttlMs;
@@ -36,11 +36,13 @@ public class RecordDetailCache {
             @Value("${records.p2.cache.ttl-ms:60000}") long ttlMs) {
         if(maxEntries<1 || maxItemBytes<1 || maxBytes<1 || ttlMs<1) throw new IllegalArgumentException("Positive cache limits required");
         this.maxEntries=maxEntries; this.maxItemBytes=maxItemBytes; this.maxBytes=maxBytes; this.ttlMs=ttlMs;
-        Arrays.setAll(stripes,i->new Object());
+        Arrays.setAll(stripes,i->new java.util.concurrent.locks.ReentrantLock());
     }
     public List<RoundPlayerRowVO> get(Key key,Supplier<List<RoundPlayerRowVO>> loader) {
         // Fixed stripes bound synchronization objects and coalesce the same key, including failures.
-        synchronized(stripes[Math.floorMod(key.hashCode(),stripes.length)]) {
+        var guardLock1 = stripes[Math.floorMod(key.hashCode(),stripes.length)];
+        guardLock1.lock();
+        try {
             byte[] cached = read(key);
             if(cached!=null) {
                 try {
@@ -65,7 +67,7 @@ public class RecordDetailCache {
                 else count("bypass");
             } catch(Exception ignored) { count("encode_error"); /* DB result remains usable. */ }
             return rows;
-        }
+        } finally { guardLock1.unlock(); }
     }
     private byte[] read(Key key) {
         synchronized(entries) {

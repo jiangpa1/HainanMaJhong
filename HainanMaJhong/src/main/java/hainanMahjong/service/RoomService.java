@@ -10,7 +10,7 @@ import org.springframework.web.socket.WebSocketSession;
  * <p><b>职责边界</b>：本接口负责"人怎么进、怎么出、房间什么时候没"；
  * <b>不</b>负责牌局本身（开局、跑把、结算）。</p>
  *
- * <p><b>锁约定</b>：实现内部沿用 {@code synchronized (room)}（房间对象即锁）。
+ * <p><b>锁约定</b>：实现内部沿用 {@code room.lock}（房间对象即锁）。
  * 调用方若需要"读改写"房间成员，应自行持有该锁；本接口的方法自身不加房间锁，
  * 只在必要的临界区内加。</p>
  *

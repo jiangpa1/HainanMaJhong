@@ -55,7 +55,7 @@ final class HainanRules implements RuleSet {
 
     @Override
     public boolean canQiangGang(Player ganger, int tile) {
-        return cb.tryQiangGang(ganger, tile);
+        return true; // Eligibility only; the engine asks asynchronously.
     }
 
     @Override

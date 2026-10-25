@@ -9,8 +9,6 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 import javax.annotation.PreDestroy;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /** One small poller, no in-memory backlog and no extra datasource/broker. Single JVM only. */
@@ -21,7 +19,7 @@ public class RoomCloseOutboxWorker {
     private final RoomSnapshotRepository snapshots;
     private final CapacityMetrics metrics;
     private final boolean enabled;
-    private ScheduledExecutorService executor;
+    private hainanMahjong.concurrent.VirtualPeriodicTask executor;
     private int ticks;
     private long nextFailureLog;
 
@@ -37,10 +35,8 @@ public class RoomCloseOutboxWorker {
     @EventListener(ApplicationReadyEvent.class)
     public synchronized void start() {
         if (!enabled || executor != null) return;
-        executor = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "room-close-outbox"); t.setDaemon(true); return t;
-        });
-        executor.scheduleWithFixedDelay(this::poll, 1, 1, TimeUnit.SECONDS);
+        executor = new hainanMahjong.concurrent.VirtualPeriodicTask("room-close-outbox");
+        executor.start(this::poll, 1, 1, TimeUnit.SECONDS);
     }
 
     void poll() {
@@ -80,6 +76,6 @@ public class RoomCloseOutboxWorker {
     }
 
     @PreDestroy public synchronized void stop() {
-        if (executor != null) executor.shutdownNow();
+        if (executor != null) executor.close();
     }
 }

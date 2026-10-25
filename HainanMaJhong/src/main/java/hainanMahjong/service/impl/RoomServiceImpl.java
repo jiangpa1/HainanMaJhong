@@ -35,7 +35,7 @@ import static hainanMahjong.room.RoomConfig.MAX_MEMBERS;
  *
  * <p>从 {@code MultiPlayerRoomServiceImpl} 整体搬出，逻辑逐字保留（除方法名与可见性调整）。</p>
  *
- * <p><b>锁</b>：与其它房间模块一致，使用 {@code synchronized (room)}（房间对象即锁），
+ * <p><b>锁</b>：与其它房间模块一致，使用 {@code room.lock}（房间对象即锁），
  * 不使用任何独立锁。注册表自身的并发由 {@link RoomRegistry} 的同步方法负责。</p>
  */
 @Service
@@ -125,7 +125,8 @@ public class RoomServiceImpl implements RoomService {
             push.sendJson(session, denied("房间不存在或已解散"));
             return false;
         }
-        synchronized (room) {
+        room.lock.lock();
+        try {
             if (room.state == State.CLOSED) {
                 push.sendJson(session, denied("房间已解散"));
                 return false;
@@ -172,7 +173,7 @@ public class RoomServiceImpl implements RoomService {
             log.info("用户 {} 加入房间 {} 座位 {}{}", userId, code, seat,
                     displaced == null ? "" : "（顶替电脑）");
             return full;
-        }
+        } finally { room.lock.unlock(); }
     }
 
     @Override
@@ -186,7 +187,8 @@ public class RoomServiceImpl implements RoomService {
             registry.unbindUser(userId, code);
             return;
         }
-        synchronized (room) {
+        room.lock.lock();
+        try {
             Member m = Member.byId(room, userId);
             if (m == null || m.roomWs != session) {
                 return;
@@ -195,7 +197,7 @@ public class RoomServiceImpl implements RoomService {
             if (room.state != State.PLAYING) {
                 removeMember(room, userId, true);
             }
-        }
+        } finally { room.lock.unlock(); }
     }
 
     // ==================== 成员离开 / 移除 ====================
@@ -239,7 +241,8 @@ public class RoomServiceImpl implements RoomService {
 
     @Override
     public void disband(Room room, String reason) {
-        synchronized (room) {
+        room.lock.lock();
+        try {
             if (room.state == State.CLOSED) return;
             String text = (reason == null) ? "房间已解散" : reason;
             List<Member> ms = new ArrayList<>(room.members.values());
@@ -256,16 +259,31 @@ public class RoomServiceImpl implements RoomService {
             }
             stopAndClear(room);
             log.info("房间 {} 解散：{}", room.code, text);
-        }
+        } finally { room.lock.unlock(); }
     }
 
     @Override
     public void stopAndClear(Room room) {
-        synchronized (room) {
+        room.lock.lock();
+        try {
             if (room.state == State.CLOSED) return;
             room.state = State.CLOSED;
             room.stop = true;
             room.resumeSeed = null;
+            RoomManager active = room.active;
+            if (active != null) {
+                try {
+                    active.cancel();
+                } catch (Exception e) {
+                    log.warn("取消房间 {} 引擎失败", room.code, e);
+                }
+            }
+            room.active = null;
+            room.engineEpoch++;
+            room.engineRunning = false;
+            room.awaitingBind = false;
+            if (room.engineTimer != null) room.engineTimer.cancel(false);
+            room.engineTimer = null;
             /*
              * 收口：房间一旦销毁，就把这一场的结束时间落库。
              *
@@ -302,17 +320,6 @@ public class RoomServiceImpl implements RoomService {
                 try { closeOutbox.complete(room.sessionId, room.generation); }
                 catch (Exception e) { log.warn("Outbox immediate acknowledgement deferred session={}", room.sessionId); }
             }
-            RoomManager active = room.active;
-            if (active != null) {
-                try {
-                    active.cancel();
-                } catch (Exception e) {
-                    log.warn("取消房间 {} 引擎失败", room.code, e);
-                }
-            }
-            room.active = null;
-            Thread thread = room.blockThread;
-            if (thread != null && thread != Thread.currentThread()) thread.interrupt();
             List<Member> ms = new ArrayList<>(room.members.values());
             registry.unregister(room);
             for (Member m : ms) {
@@ -321,7 +328,7 @@ public class RoomServiceImpl implements RoomService {
                 m.gameWs = null;
             }
             room.members.clear();
-        }
+        } finally { room.lock.unlock(); }
     }
 
     private boolean retryClose(Room room) {

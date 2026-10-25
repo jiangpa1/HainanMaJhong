@@ -4,7 +4,7 @@
 
 [在线试玩](http://jiangpahnmj.cn) · [Android APK](HainanMaJhong/src/main/resources/static/apk/jiangpahnmj.apk) · [架构](#架构) · [实测结果](#实测结果) · [文档索引](#文档索引)
 
-Java 17 / Spring Boot 2.7 / MyBatis-Plus / MySQL / Redis / WebSocket · 前端 Vue 3 / Vite
+Java 21 / Spring Boot 2.7 / MyBatis-Plus / MySQL / Redis / WebSocket · 前端 Vue 3 / Vite
 单机部署（2 vCPU / 1.6 GiB），systemd 托管，生产额度 `RECORDS_RPS=800 / BURST=100`，18 条告警接入云端 Prometheus。
 
 ---
@@ -15,11 +15,15 @@ Java 17 / Spring Boot 2.7 / MyBatis-Plus / MySQL / Redis / WebSocket · 前端 V
 |---|---|
 | 回合推进 | `RoomManager` 编排发牌、摸补花、出牌、响应与判胡；合法候选动作由 `ActionDetector` 纯计算，决策经 `PlayerController`，事件经 `GameListener` 输出 |
 | 三方响应仲裁 | 先收齐各家选择（收集阶段不改手牌与牌河），再按实际动作优先级与座次统一仲裁、只执行一次；已无法胜出的候选提前结束询问 |
-| 一次决策只被认领一次 | 引擎线程阻塞等待，玩家回复、超时任务与解散三方竞争同一个受锁完成标记，先到者生效，迟到应答丢弃 |
-| 对局状态归属 | 状态由引擎线程独占；重同步只提交标记，快照在该线程边界生成，WebSocket 线程不遍历可变集合 |
+| 一次决策只被认领一次 | 玩家回复、超时与取消竞争一次性完成标记，完成后投递房间事件，等待时不占用线程，迟到应答丢弃 |
+| 对局状态归属 | 状态由房间串行邮箱独占，虚拟线程执行就绪事件；快照在事件边界生成，WebSocket 线程不遍历可变集合 |
 | 私有数据下发 | 摸牌与暗杠按座位生成不同载荷，隐藏字段在服务端裁掉后才推送 |
 | 结算与补偿 | 锁场次行、拒绝已关闭场次写入、按局号识别重复提交，小局与四家流水同事务提交；场次关闭走 Outbox，由轮询重放、幂等、退避与死信补偿 |
 | 输入校验 | 客户端只回选项下标，动作由服务端从自存候选集取出执行 |
+
+2026-10-25 已完成本地 [JDK 21 与虚拟线程迁移](HainanMaJhong/docs/JDK21与虚拟线程迁移_2026-10-25.md)：HTTP、牌局事件和后台 I/O 使用虚拟线程，阻塞路径采用 ReentrantLock。尚未部署或重新验收线上容量。
+
+2026-10-24 已完成本地[事件驱动状态机改造](HainanMaJhong/docs/事件驱动状态机改造_2026-10-24.md)：移除每房间引擎线程和计时器线程，联机路径采用异步决策与共享调度；尚未部署或重新验收线上容量。
 
 对局内核不依赖 WebSocket：同一套引擎可接真人或机器人，并有 3 机器人 + 1 真人、4 机器人两种对局回归测试，可脱离浏览器运行。
 
@@ -106,13 +110,13 @@ flowchart LR
 
 ## 构建与运行
 
-依赖 JDK 17、Maven、Node.js ≥ 22、pnpm。复制 `HainanMaJHong/.env.example` 填写本地配置，初始化 MySQL 与 Redis。
+依赖 JDK 21、Maven、Node.js ≥ 22、pnpm。复制 `HainanMaJHong/.env.example` 填写本地配置，初始化 MySQL 与 Redis。
 
 ```powershell
 cd HainanMaJHong/frontend
 pnpm install --frozen-lockfile --ignore-scripts
 cd ..
-./ops/build-release.ps1 -JavaHome '<JDK17目录>' -Maven '<mvn.cmd路径>'
+./ops/build-release.ps1 -JavaHome '<JDK21目录>' -Maven '<mvn.cmd路径>'
 ```
 
 产出 `target/HainanMaJHong2-1.0-SNAPSHOT.jar` 与 SHA256/源码清单。当前构建对应 92 项测试、0 失败、1 跳过；构建脚本编译但不运行测试。运行与验收见[项目说明](HainanMaJhong/README.md)。

@@ -45,4 +45,6 @@ public interface PlayerController {
     /** 出牌请求发出前，引擎把“本次能否报听”的提示交给控制器（真人据此弹按钮）。 */
     default void prepareDiscard(boolean canReport) {
     }
+    /** Called on the room mailbox after a decision or cancellation; retire stale responders. */
+    default void onDecisionFinished() { }
 }

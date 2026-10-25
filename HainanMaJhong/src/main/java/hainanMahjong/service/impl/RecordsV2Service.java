@@ -27,7 +27,8 @@ public class RecordsV2Service {
     private final RecordsV2Mapper queries;
     private final RecordsServiceImpl legacy;
     private final ObjectMapper json = new ObjectMapper();
-    private final Object[] aggregateLocks = java.util.stream.IntStream.range(0,64).mapToObj(i -> new Object()).toArray();
+    private final java.util.concurrent.locks.ReentrantLock[] aggregateLocks = java.util.stream.IntStream.range(0,64)
+            .mapToObj(i -> new java.util.concurrent.locks.ReentrantLock()).toArray(java.util.concurrent.locks.ReentrantLock[]::new);
     // 只保存数值统计和最高番描述，不保存个人昵称/权限。每次读之前必须 authorized。
     // 上限 512 场，60 秒固定寿命；新版本只聚合新增小局，冷启动/回读旧版本仍由 SQL 聚合。
     private record Aggregate(int cutoff, long revision, long createdAt, List<Stats> players) {}
@@ -201,9 +202,11 @@ public class RecordsV2Service {
     }
 
     private List<Stats> aggregate(long sessionId, int cutoff) {
-        synchronized(aggregateLocks[Math.floorMod(Long.hashCode(sessionId),aggregateLocks.length)]) {
+        var guardLock1 = aggregateLocks[Math.floorMod(Long.hashCode(sessionId),aggregateLocks.length)];
+        guardLock1.lock();
+        try {
             return aggregateLocked(sessionId,cutoff);
-        }
+        } finally { guardLock1.unlock(); }
     }
 
     private List<Stats> aggregateLocked(long sessionId, int cutoff) {

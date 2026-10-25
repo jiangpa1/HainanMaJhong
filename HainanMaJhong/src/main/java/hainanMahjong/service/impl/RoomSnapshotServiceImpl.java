@@ -38,7 +38,8 @@ public class RoomSnapshotServiceImpl implements RoomSnapshotService {
         try {
             RedisRoom rs = new RedisRoom();
             String json;
-            synchronized (room) {
+            room.lock.lock();
+            try {
                 if (room.stop || room.state == State.CLOSED || room.members.isEmpty()) return;
                 rs.generation = room.generation;
                 rs.version = ++room.snapshotVersion;
@@ -72,7 +73,7 @@ public class RoomSnapshotServiceImpl implements RoomSnapshotService {
                 }
                 rs.snapshot = snap;
                 json = mapper.writeValueAsString(rs);
-            }
+            } finally { room.lock.unlock(); }
             if (!redis.saveRoomState(room.code, rs.generation, rs.version, rs.sessionId, json)) {
                 log.debug("拒绝过期房间快照 code={} generation={} version={}", room.code, rs.generation, rs.version);
             }

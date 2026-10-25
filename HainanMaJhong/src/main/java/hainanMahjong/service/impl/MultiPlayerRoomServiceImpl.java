@@ -93,13 +93,14 @@ public class MultiPlayerRoomServiceImpl implements MultiPlayerRoomService {
             } else if ("fillBots".equals(type) || "startNow".equals(type) || "leaveRoom".equals(type)) {
                 Room room = userId == null ? null : registry.find(registry.codeOfUser(userId));
                 if (room == null) return;
-                synchronized (room) {
+                room.lock.lock();
+                try {
                     Member member = Member.byId(room, userId);
                     if (room.state == State.CLOSED || member == null || member.roomWs != session) return;
                     if ("fillBots".equals(type)) engine.fillBotsFor(userId);
                     else if ("startNow".equals(type)) engine.startNowFor(userId);
                     else leave(userId);
-                }
+                } finally { room.lock.unlock(); }
             } else {
                 push.sendJson(session, denied("未知指令: " + type));
             }
@@ -166,7 +167,8 @@ public class MultiPlayerRoomServiceImpl implements MultiPlayerRoomService {
             }
             return;
         }
-        synchronized (room) {
+        room.lock.lock();
+        try {
             if (room.state == State.CLOSED || !registry.isGameSessionCurrent(session, room)) return;
             Member m = Member.byId(room, userId);
             if (m == null || m.gameWs != session) {
@@ -223,7 +225,7 @@ public class MultiPlayerRoomServiceImpl implements MultiPlayerRoomService {
             } catch (Exception e) {
                 log.warn("解析 /game 消息失败：{}", e.getMessage());
             }
-        }
+        } finally { room.lock.unlock(); }
     }
 
     @Override
@@ -239,14 +241,15 @@ public class MultiPlayerRoomServiceImpl implements MultiPlayerRoomService {
         if (room == null) {
             return;
         }
-        synchronized (room) {
+        room.lock.lock();
+        try {
             Member m = Member.byId(room, userId);
             if (m == null || m.gameWs != session) {
                 return;
             }
             m.gameWs = null;
             rooms.handleMemberLeft(room, m);
-        }
+        } finally { room.lock.unlock(); }
     }
 
     /** 是否已没有任何真人在线（四人全离线/未连入；补位的机器人不计）。 */
@@ -260,7 +263,8 @@ public class MultiPlayerRoomServiceImpl implements MultiPlayerRoomService {
             push.sendJson(session, denied("房间不存在或已解散"));
             return;
         }
-        synchronized (room) {
+        room.lock.lock();
+        try {
             if (room.state == State.CLOSED) return;
             Member m = room.members.get(seat);
             if (m == null || m.userId != userId) {
@@ -329,13 +333,13 @@ public class MultiPlayerRoomServiceImpl implements MultiPlayerRoomService {
             // Scene resynchronization and pending decisions run on the engine thread.
             engine.pushSeatState(session, room, m.seat);
             // 重启后第一次有人连回：若 Redis 说本块正在打，则续跑本块
-            if (room.state == State.PLAYING && room.blockThread == null && room.resumeSeed != null) {
+            if (room.state == State.PLAYING && !room.engineRunning && room.resumeSeed != null) {
                 EngineStart seed = room.resumeSeed;
                 room.resumeSeed = null;
                 engine.startEngine(room, seed);
             }
             log.info("座位 {} 玩家 {} 连入对局 {}", seat, userId, code);
-        }
+        } finally { room.lock.unlock(); }
     }
 
     // ==================== 创建 / 加入 / 离开（等待房） ====================
@@ -358,12 +362,13 @@ public class MultiPlayerRoomServiceImpl implements MultiPlayerRoomService {
             registry.unbindUser(userId, code);
             return;
         }
-        synchronized (room) {
+        room.lock.lock();
+        try {
             Member m = Member.byId(room, userId);
             if (m != null) {
                 rooms.handleMemberLeft(room, m);
             }
-        }
+        } finally { room.lock.unlock(); }
     }
     // ==================== 大厅“返回房间” ====================
 
@@ -383,7 +388,8 @@ public class MultiPlayerRoomServiceImpl implements MultiPlayerRoomService {
         if (room == null) {
             return out;
         }
-        synchronized (room) {
+        room.lock.lock();
+        try {
             Member m = Member.byId(room, userId);
             if (m == null) {
                 return out;
@@ -393,7 +399,7 @@ public class MultiPlayerRoomServiceImpl implements MultiPlayerRoomService {
             out.put("state", room.state.name());
             out.put("seat", m.seat.name());
             out.put("hostUserId", room.hostUserId);
-        }
+        } finally { room.lock.unlock(); }
         return out;
     }
 

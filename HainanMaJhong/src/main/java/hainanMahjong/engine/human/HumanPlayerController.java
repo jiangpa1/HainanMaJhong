@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 人类玩家的 {@link PlayerController} 实现：把决策请求转发给前端，
- * 并阻塞等待前端通过 WebSocket 返回的决定。
+ * 异步等待前端通过 WebSocket 返回的决定。
  *
  * <p>注意：这里不阻塞房间线程——回调方法只记录 responder 并立即返回，
  * 前端回复后由 WebSocket 线程调用 responder 完成应答；超时由 {@code RoomManager}
@@ -64,7 +64,11 @@ public class HumanPlayerController implements PlayerController {
         this.sender = newSender;
     }
 
-    /** 清空未完成的待决请求（每把开始前调用，避免上把的迟到响应串台）。 */
+    @Override
+    public void onDecisionFinished() {
+        synchronized (pending) { pending.clear(); }
+    }
+
     /** 把仍在等待前端回复的请求原样重发给当前出口（重连后调用）。 */
     public void resendPending() {
         List<Map<String, Object>> msgs;

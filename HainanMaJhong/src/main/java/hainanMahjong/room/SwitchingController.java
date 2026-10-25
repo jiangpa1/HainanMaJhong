@@ -18,10 +18,11 @@ import java.util.List;
  *
  * <p>原先嵌套在 {@code MultiPlayerRoomServiceImpl} 内，为了让各拆分模块共用而提为顶层类型。</p>
  */
-@Setter
 public class SwitchingController implements PlayerController {
 
+    @Setter
     private volatile PlayerController delegate;
+    private PlayerController decisionOwner;
 
     public SwitchingController(PlayerController initial) {
         this.delegate = initial;
@@ -29,17 +30,20 @@ public class SwitchingController implements PlayerController {
 
     @Override
     public void onDiscardTurn(Seat seat, List<Integer> hand, int drawnTile, List<Integer> banned, Responder r) {
-        delegate.onDiscardTurn(seat, hand, drawnTile, banned, r);
+        decisionOwner = delegate;
+        decisionOwner.onDiscardTurn(seat, hand, drawnTile, banned, r);
     }
 
     @Override
     public void onActionChance(Seat seat, int tile, List<Action> options, Responder r) {
-        delegate.onActionChance(seat, tile, options, r);
+        decisionOwner = delegate;
+        decisionOwner.onActionChance(seat, tile, options, r);
     }
 
     @Override
     public void onDrawChance(Seat seat, int drawnTile, List<Action> options, Responder r) {
-        delegate.onDrawChance(seat, drawnTile, options, r);
+        decisionOwner = delegate;
+        decisionOwner.onDrawChance(seat, drawnTile, options, r);
     }
 
     @Override
@@ -50,5 +54,11 @@ public class SwitchingController implements PlayerController {
     @Override
     public void prepareDiscard(boolean canReport) {
         delegate.prepareDiscard(canReport);
+    }
+    @Override
+    public void onDecisionFinished() {
+        PlayerController owner = decisionOwner;
+        decisionOwner = null;
+        if (owner != null) owner.onDecisionFinished();
     }
 }

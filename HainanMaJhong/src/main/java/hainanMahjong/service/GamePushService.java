@@ -15,10 +15,10 @@ import java.util.Map;
  * {@link hainanMahjong.service.impl.MultiPlayerRoomServiceImpl}。</p>
  *
  * <p><b>并发约定</b>：本接口的方法<b>不自带锁</b>；调用方通常已持有
- * {@code synchronized (room)}。实现内部不要引入新的锁，也不要在这里做耗时 I/O。</p>
+ * {@code room.lock}。实现内部不要引入新的锁，也不要在这里做耗时 I/O。</p>
  *
  * <p><b>为什么 sendJson 是 public</b>：它是全项目唯一的 WebSocket 发送出口
- * （统一处理"session 已关闭"与发送异常、并对 session 加锁避免并发写），
+ * （统一处理"session 已关闭"与发送异常、并使用会话发送锁避免并发写），
  * 房间与引擎的其它模块也要用它，所以必须公开。</p>
  */
 public interface GamePushService {

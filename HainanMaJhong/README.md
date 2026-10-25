@@ -1,7 +1,7 @@
 # HainanMaJhong 海南麻将
 
 一套可联网对战的海南麻将：**查表法判胡** + **整局流程房间管理器** + **Redis / MySQL 持久化**
-+ **Vue3 单页前端（含手机虚拟横屏）**。后端 Spring Boot 2.7 / **JDK 17**，前端 Vue 3 + Vite。
++ **Vue3 单页前端（含手机虚拟横屏）**。后端 Spring Boot 2.7 / **JDK 21**，前端 Vue 3 + Vite。
 
 - 不含鬼牌（癞子），含花牌；四人联网，可补电脑。
 - 番型：清一色、混一色、碰碰胡、七对、龙七对、十三幺、天胡、杠开、自摸…
@@ -188,7 +188,7 @@ RoundResult r = room.getResult();                // 谁胡了 / 是否流局
 
 ## 编译运行
 
-需要 **JDK 17** 和 Maven（IntelliJ 自带 Maven 亦可）。
+需要 **JDK 21** 和 Maven（IntelliJ 自带 Maven 亦可）。
 
 ```bash
 # 方式一：Maven 直接跑 Spring Boot 应用
@@ -211,13 +211,13 @@ java -jar target/HainanMaJhong2-1.0-SNAPSHOT.jar
 
 ## 部署到云服务器（prod profile）
 
-**不需要 Docker**：产物就是一个 fat jar（前端已打进 jar），依赖只有 JDK 17 + MySQL + Redis。
+**不需要 Docker**：产物就是一个 fat jar（前端已打进 jar），依赖只有 JDK 21 + MySQL + Redis。
 
 ### 1. 前提
 
 | 项 | 要求 |
 |---|---|
-| JDK | 17 |
+| JDK | 21 |
 | MySQL | 8.x。**先手工建空库**：`CREATE DATABASE hainan_majong DEFAULT CHARSET utf8mb4;`。表由 `SchemaInitializer` 启动时幂等创建（`user` / `game_sessions` / `game_rounds` / `game_round_scores`），所以账号要有建表/改表权限 |
 | Redis | 6/7 并设密码。连不上应用仍能起，但断线重连 / 快照恢复降级 |
 | 必填凭据 | `DB_PASSWORD`、`REDIS_PASSWORD`、`JWT_SECRET`（**≥32 字节**，否则 `WeakKeyException` 起不来） |

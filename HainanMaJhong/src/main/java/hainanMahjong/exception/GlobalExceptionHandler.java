@@ -40,7 +40,7 @@ import org.springframework.http.ResponseEntity;
  *       （<b>不是同一个异常</b>，漏掉它 {@code RecordsController} 的分页校验就会漏网）</li>
  * </ul>
  */
-@RestControllerAdvice
+@RestControllerAdvice(basePackages = "hainanMahjong")   // 限定作用域：不接管 actuator 等框架端点
 public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);

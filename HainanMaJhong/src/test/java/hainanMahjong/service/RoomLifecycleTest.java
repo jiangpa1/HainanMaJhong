@@ -67,7 +67,7 @@ class RoomLifecycleTest {
         Room room = populated(State.PLAYING); registry.register(room);
         CountDownLatch captured = new CountDownLatch(1), release = new CountDownLatch(1);
         doAnswer(call -> {
-            assertFalse(Thread.holdsLock(room)); captured.countDown();
+            assertFalse(room.lock.isHeldByCurrentThread()); captured.countDown();
             assertTrue(release.await(3, TimeUnit.SECONDS)); return false;
         }).when(redis).saveRoomState(anyString(), anyString(), anyLong(), anyLong(), anyString());
         ExecutorService worker = Executors.newSingleThreadExecutor();
@@ -143,7 +143,7 @@ class RoomLifecycleTest {
         GameEngineServiceImpl engine = new GameEngineServiceImpl(persist, mock(GamePushService.class),
                 mock(RoomSnapshotService.class), registry, rooms);
         engine.startMatch(room); engine.startEngine(room, new EngineStart());
-        assertNull(room.blockThread); assertTrue(room.stop); assertEquals(State.CLOSED, room.state);
+        assertFalse(room.engineRunning); assertTrue(room.stop); assertEquals(State.CLOSED, room.state);
     }
 
     @Test void legacyBetweenSnapshotIsMigratedAfterValidation() throws Exception {

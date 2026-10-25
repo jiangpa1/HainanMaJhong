@@ -105,13 +105,14 @@ class RoomLockReproTest {
         final long[] lockWait = {-1};
         Thread ws = new Thread(() -> {
             long t1 = System.currentTimeMillis();
-            synchronized (room) {                       // 第 1 步
+            room.lock.lock();
+            try {                       // 第 1 步
                 lockWait[0] = System.currentTimeMillis() - t1;
                 Member m = Member.byId(room, 1001L);    // 第 2 步
                 if (m != null && firstReqId[0] > 0) {
                     m.human.discard(firstReqId[0], firstTile[0]);   // 第 3 步
                 }
-            }
+            } finally { room.lock.unlock(); }
         }, "fake-onGameMessage");
         ws.setDaemon(true);
         ws.start();

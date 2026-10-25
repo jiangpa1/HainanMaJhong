@@ -28,33 +28,66 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
-import java.util.concurrent.Executors;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 /**
- * 房间管理器：负责整局流程。
- *
- * <ul>
- *   <li>洗牌发牌：{@link Collections#shuffle}，136（无花）或 144（含花）张。</li>
- *   <li>轮流抓牌/出牌；出牌与吃碰杠胡均带超时（默认 15 秒），超时强制动作。</li>
- *   <li>出牌后广播其余三家，判定吃/碰/杠/胡，按 胡 &gt; 杠 &gt; 碰 &gt; 吃 优先级询问。</li>
- * </ul>
- *
- * <p>调用 {@link #start()} 同步运行一整局（阻塞直到结束）。玩家决策通过
- * {@link PlayerController} 回调，事件通过 {@link GameListener} 输出。</p>
- *
- * <h3>协作的类（各管一块，本类只做编排）</h3>
- * <ul>
- *   <li>{@link hainanMahjong.engine.rule.ChiBan} —— 海南"吃后禁打"的纯规则</li>
- *   <li>{@link hainanMahjong.engine.rule.GenChainTracker} —— 海南"根链"状态机</li>
- *   <li>{@link PromptSupport} —— 带超时的询问（引擎线程与定时器/WS 线程的会合点）</li>
- * </ul>
- *
- * <p><b>线程</b>：{@link #start()} / {@link #resume(GameSnapshot)} 在<b>调用者线程</b>上同步阻塞跑完整局
- * （联机场景下就是 {@code room-engine-*} 线程）；期间通过 {@link PromptSupport}
- * 内部创建的 {@code mahjong-timer} 定时器处理超时。</p>
+ * Event-driven hand state machine. All mutations and listener calls run on one mailbox.
+ * Player replies and deadlines enqueue continuations; waiting never occupies a worker.
+ * start/resume are standalone blocking adapters; multiplayer uses startAsync/resumeAsync.
  */
 public class RoomManager {
+
+    public enum Phase { NEW, TURN, DRAW_ACTION, DISCARD, CLAIM, ROB_KONG, ENDED, CANCELLED, FAILED }
+    private volatile Phase phase = Phase.NEW;
+    public Phase phase() { return phase; }
+    private final RoomEventLoop events;
+    private final AtomicBoolean started = new AtomicBoolean();
+    private final CompletableFuture<RoundResult> completion = new CompletableFuture<>();
+    private ScheduledFuture<?> idleTimer;
+
+    private void post(Runnable event) {
+        events.execute(() -> {
+            if (completion.isDone()) return;
+            try {
+                if (cancelled) { finish(); return; }
+                event.run();
+                if (roundOver || cancelled) finish();
+            } catch (Throwable ex) {
+                phase = Phase.FAILED;
+                try { cleanup(); }
+                catch (Throwable cleanupFailure) { ex.addSuppressed(cleanupFailure); }
+                finally { completion.completeExceptionally(ex); }
+            }
+        });
+    }
+
+    private void cleanup() {
+        if (idleTimer != null) idleTimer.cancel(false);
+        PromptSupport current = prompts;
+        if (current != null) current.shutdown();
+        for (Player player : players.values()) player.controller.onDecisionFinished();
+    }
+
+    private void finish() {
+        if (completion.isDone()) return;
+        phase = cancelled ? Phase.CANCELLED : Phase.ENDED;
+        cleanup();
+        if (!cancelled) listener.onEnd(result);
+        completion.complete(result);
+    }
+
+    private void idleLater() {
+        idleTimer = events.schedule(() -> post(() -> {
+            listener.onIdle();
+            idleLater();
+        }), 1000);
+    }
+
+    /** Request a scene refresh on the same mailbox as hand mutations. */
+    public void refresh() { post(listener::onIdle); }
 
     private final GameConfig config;
     private final Map<Seat, Player> players = new EnumMap<>(Seat.class);
@@ -68,7 +101,7 @@ public class RoomManager {
     /** 根链跟踪（海南）。 */
     private final GenChainTracker genTracker = new GenChainTracker();
 
-    /** 带超时的询问机制；每把开始时重建（内含 mahjong-timer 定时器）。 */
+    /** 当前决策；超时共用进程级调度器。 */
     private volatile PromptSupport prompts;
 
     /** 本局适用的规则集（标准 / 海南），构造时依据 config 定下，之后不再变。 */
@@ -103,7 +136,7 @@ public class RoomManager {
      * 本把结果（谁胡了 / 是否流局）；未结束时为上一把的结果或 null。
      */
     @Getter
-    private RoundResult result;
+    private volatile RoundResult result;
     private int turnCount;
     private Seat currentSeat;
     private boolean currentSkipDraw;
@@ -121,6 +154,12 @@ public class RoomManager {
     private volatile Consumer<GameSnapshot> checkpoint;
 
     public RoomManager(GameConfig config, Map<Seat, PlayerController> controllers, GameListener listener) {
+        this(config, controllers, listener, new RoomEventLoop());
+    }
+
+    public RoomManager(GameConfig config, Map<Seat, PlayerController> controllers,
+                       GameListener listener, RoomEventLoop events) {
+        this.events = events;
         this.config = config;
         this.listener = (listener != null) ? listener : NoopGameListener.INSTANCE;
         this.rules = RuleSet.of(config, new RulesCallbacks() {
@@ -132,11 +171,6 @@ public class RoomManager {
             @Override
             public boolean canHuWin(Player p, int extraTile, boolean selfDraw, boolean qiangGang) {
                 return judge.canHuWin(p, extraTile, selfDraw, qiangGang);
-            }
-
-            @Override
-            public boolean tryQiangGang(Player ganger, int tile) {
-                return RoomManager.this.tryQiangGang(ganger, tile);
             }
 
             @Override
@@ -177,16 +211,18 @@ public class RoomManager {
         return playerDiscards.get(seat);
     }
 
-    /** 取消当前对局（玩家主动退出）：立即解除阻塞并终止本把。 */
+    /** Number of active decision deadlines owned by this hand (shared scheduler). */
     public int pendingTimerCount() {
         PromptSupport current = prompts;
         return current == null ? 0 : current.pendingTimerCount();
     }
 
+    /** Cancel immediately; the terminal event retires pending decisions on the mailbox. */
     public void cancel() {
         cancelled = true;
         PromptSupport current = prompts;
         if (current != null) current.shutdown();
+        post(() -> {});
     }
 
     /** 当前牌墙剩余张数（结算“牌墙剩≤19 点炮独担三家”等用）。 */
@@ -262,8 +298,46 @@ public class RoomManager {
     }
 
     /** 从快照恢复并继续这一把（不发牌，直接续接当前出牌者的回合）。 */
-    public void resume(GameSnapshot snap) {
-        if (cancelled) return;
+    public void resume(GameSnapshot snap) { resumeAsync(snap).join(); }
+
+    public CompletableFuture<RoundResult> resumeAsync(GameSnapshot snap) {
+        begin(snap);
+        return completion;
+    }
+
+    public void start() { startAsync().join(); }
+
+    public CompletableFuture<RoundResult> startAsync() {
+        begin(null);
+        return completion;
+    }
+
+    private void begin(GameSnapshot snap) {
+        if (!started.compareAndSet(false, true)) return;
+        post(() -> {
+            prompts = new PromptSupport(listener, this::post);
+            idleLater();
+            if (snap == null) {
+                resetHandState();
+                buildDeck();
+                shuffle();
+                deal();
+                doTurn(config.dealer, true, true);
+            } else {
+                restore(snap);
+                listener.onResume();
+                if ("RESPOND".equals(snap.phase)) {
+                    Seat discarder = Seat.valueOf(snap.currentSeat);
+                    int tile = discardPile.isEmpty() ? -1 : discardPile.get(discardPile.size() - 1);
+                    continueAfterDiscard(discarder, tile);
+                } else {
+                    doTurn(Seat.valueOf(snap.currentSeat), snap.skipDraw, snap.allowWin);
+                }
+            }
+        });
+    }
+
+    private void restore(GameSnapshot snap) {
         resetHandState();
         deck.clear();
         deck.addAll(snap.deck);
@@ -306,52 +380,6 @@ public class RoomManager {
             if (sd != null) {
                 ds.addAll(sd);
             }
-        }
-        prompts = new PromptSupport(Executors.newScheduledThreadPool(1, r -> {
-            Thread t = new Thread(r, "mahjong-timer");
-            t.setDaemon(true);
-            return t;
-        }), listener);
-        if (cancelled) { prompts.shutdown(); return; }
-        listener.onResume();
-        try {
-            if ("RESPOND".equals(snap.phase)) {
-                // 从弃牌后恢复：重新处理其他家的响应
-                Seat discarder = Seat.valueOf(snap.currentSeat);
-                int tile = discardPile.isEmpty() ? -1 : discardPile.get(discardPile.size() - 1);
-                continueAfterDiscard(discarder, tile);
-            } else {
-                doTurn(Seat.valueOf(snap.currentSeat), snap.skipDraw, snap.allowWin);
-            }
-        } finally {
-            prompts.shutdown();
-        }
-        if (!cancelled) {
-            listener.onEnd(result);
-        }
-    }
-
-    // ==================== 启动 ====================
-
-    public void start() {
-        if (cancelled) return;
-        resetHandState();
-        buildDeck();
-        shuffle();
-        deal();
-        prompts = new PromptSupport(Executors.newScheduledThreadPool(1, r -> {
-            Thread t = new Thread(r, "mahjong-timer");
-            t.setDaemon(true);
-            return t;
-        }), listener);
-        try {
-            if (cancelled) return;
-            doTurn(config.dealer, true, true);
-        } finally {
-            prompts.shutdown();
-        }
-        if (!cancelled) {
-            listener.onEnd(result);
         }
     }
 
@@ -403,6 +431,7 @@ public class RoomManager {
      * @param allowWin 是否允许自摸胡/杠判定（碰吃后为 false，避免把碰后的 11 张误判成自摸）
      */
     private void doTurn(Seat seat, boolean skipDraw, boolean allowWin) {
+        phase = Phase.TURN;
         currentSeat = seat;
         currentSkipDraw = skipDraw;
         currentAllowWin = allowWin;
@@ -430,57 +459,52 @@ public class RoomManager {
             p.lastDrawn = -1;
         }
 
-        // 自摸胡 / 暗杠 / 补杠（杠后补牌，可连续）
-        if (allowWin) {
-            while (!roundOver && !cancelled) {
-                List<Action> opts = detector.onDraw(p);
-                if (opts.isEmpty()) break;
-                Action a = requestDrawAction(p, opts);
-                if (a == null || a.type() == Action.Type.PASS) break;
-                applyDrawAction(p, a);
-                if (roundOver || cancelled) return;
-                lastDrawKongFlower = true; // 杠后补牌：若自摸胡即为“杠开”
-                int t = drawOne(p); // 杠后补牌
-                if (t < 0) {
-                    endDraw();
-                    return;
-                }
-                if (rules.shouldEndDraw(deck.size())) {
-                    terminalDraw = true;
-                }
+        drawDecision(p, allowWin, terminalDraw);
+    }
+
+    private void drawDecision(Player p, boolean allowWin, boolean terminalDraw) {
+        if (roundOver || cancelled) return;
+        phase = Phase.DRAW_ACTION;
+        List<Action> opts = allowWin ? detector.onDraw(p) : List.of();
+        if (opts.isEmpty()) { discardDecision(p, terminalDraw); return; }
+        requestDrawAction(p, opts, action -> {
+            if (action == null || action.type() == Action.Type.PASS) {
+                discardDecision(p, terminalDraw);
+                return;
             }
-        }
+            Runnable apply = () -> {
+                applyDrawAction(p, action);
+                if (roundOver || cancelled) return;
+                lastDrawKongFlower = true;
+                if (drawOne(p) < 0) { endDraw(); return; }
+                drawDecision(p, true, terminalDraw || rules.shouldEndDraw(deck.size()));
+            };
+            if (action.type() == Action.Type.BU_GANG && rules.canQiangGang(p, action.targetTile())) {
+                robKong(p, action.targetTile(), apply);
+            } else apply.run();
+        });
+    }
+
+    private void discardDecision(Player p, boolean terminalDraw) {
         if (roundOver || cancelled) return;
-
-        // 摸到倒数第16张的玩家：只能自摸或靠花/杠补牌；补完仍不自摸 → 流局（不再出牌）
-        if (terminalDraw) {
-            endDraw();
-            return;
-        }
-
-        // 出牌（discard 内会在出牌后、广播前保存 RESPOND 快照）
-        int tile = discard(p);
-        if (roundOver || cancelled) return;
-
-        // 处理其他三家的动作
-        continueAfterDiscard(seat, tile);
+        if (terminalDraw) { endDraw(); return; }
+        phase = Phase.DISCARD;
+        requestDiscard(p, tile -> {
+            discard(p, tile);
+            if (!roundOver && !cancelled) continueAfterDiscard(p.seat, tile);
+        });
     }
 
     private void continueAfterDiscard(Seat discarder, int tile) {
-        Claim claim = resolveDiscard(players.get(discarder), tile);
-        if (roundOver || cancelled) return;
-
-        if (claim != null) {
-            genTracker.noteInterrupted(); // 有吃碰杠打断“依次跟牌”的顺次
-        }
-
-        if (claim == null) {
-            doTurn(discarder.next(), false, true);
-        } else if (claim.action.type() == Action.Type.PENG || claim.action.type() == Action.Type.CHI) {
-            doTurn(claim.seat, true, false); // 碰/吃后不抓牌，直接出牌
-        } else { // 明杠后补牌
-            doTurn(claim.seat, false, true);
-        }
+        phase = Phase.CLAIM;
+        resolveDiscard(players.get(discarder), tile, claim -> {
+            if (roundOver || cancelled) return;
+            if (claim != null) genTracker.noteInterrupted();
+            if (claim == null) post(() -> doTurn(discarder.next(), false, true));
+            else if (claim.action.type() == Action.Type.PENG || claim.action.type() == Action.Type.CHI)
+                post(() -> doTurn(claim.seat, true, false));
+            else post(() -> doTurn(claim.seat, false, true));
+        });
     }
 
     private int drawOne(Player p) {
@@ -502,8 +526,7 @@ public class RoomManager {
         }
     }
 
-    private int discard(Player p) {
-        int tile = requestDiscard(p);
+    private void discard(Player p, int tile) {
         listener.onIdle();
         eatBan = null; // 吃后禁打只作用于这一手，出牌后即解除
         p.remove(tile, 1);
@@ -519,7 +542,6 @@ public class RoomManager {
         if (config.maxTurns > 0 && turnCount >= config.maxTurns) {
             endDraw();
         }
-        return tile;
     }
 
     // ==================== 海南：天听/地听/报听 ====================
@@ -601,36 +623,46 @@ public class RoomManager {
     private record Claim(Seat seat, Action action) {
     }
 
-    private Claim resolveDiscard(Player discarder, int tile) {
+    private void resolveDiscard(Player discarder, int tile, Consumer<Claim> continuation) {
         Map<Seat, List<Action>> byPlayer = new EnumMap<>(Seat.class);
-        for (Seat s : Seat.values()) {
-            if (s == discarder.seat) continue;
-            List<Action> acts = detector.onDiscard(players.get(s), tile, discarder.seat);
-            if (!acts.isEmpty()) {
-                byPlayer.put(s, acts);
-            }
+        for (Seat seat : Seat.values()) {
+            if (seat == discarder.seat) continue;
+            List<Action> acts = detector.onDiscard(players.get(seat), tile, discarder.seat);
+            if (!acts.isEmpty()) byPlayer.put(seat, acts);
         }
-        if (byPlayer.isEmpty()) return null;
-
-        // 按「最高优先级动作」排序；同级按离出牌者近优先
         List<Seat> order = new ArrayList<>(byPlayer.keySet());
-        order.sort((a, b) -> {
-            int pa = TurnUtils.bestPriority(byPlayer.get(a));
-            int pb = TurnUtils.bestPriority(byPlayer.get(b));
-            if (pa != pb) return pa - pb;
-            return a.stepsAfter(discarder.seat) - b.stepsAfter(discarder.seat);
-        });
+        order.sort((a, b) -> compareClaimOrder(TurnUtils.bestPriority(byPlayer.get(a)), a,
+                TurnUtils.bestPriority(byPlayer.get(b)), b, discarder.seat));
+        claimNext(discarder, tile, byPlayer, order, 0, null, continuation);
+    }
 
-        for (Seat s : order) {
-            List<Action> acts = byPlayer.get(s);
-            Action chosen = requestAction(players.get(s), tile, acts);
-            if (chosen == null || chosen.type() == Action.Type.PASS) {
-                continue;
-            }
-            applyDiscardAction(players.get(s), discarder, tile, chosen);
-            return new Claim(s, chosen);
+    private void claimNext(Player discarder, int tile, Map<Seat, List<Action>> byPlayer,
+                           List<Seat> order, int index, Claim best, Consumer<Claim> continuation) {
+        if (cancelled) return;
+        if (index == order.size() || best != null && compareClaimOrder(
+                TurnUtils.bestPriority(byPlayer.get(order.get(index))), order.get(index),
+                best.action.priority(), best.seat, discarder.seat) >= 0) {
+            // Actual chosen actions decide priority; no hand/river mutations during collection.
+            if (best != null) applyDiscardAction(players.get(best.seat), discarder, tile, best.action);
+            continuation.accept(best);
+            return;
         }
-        return null;
+        Seat seat = order.get(index);
+        requestAction(players.get(seat), tile, byPlayer.get(seat), chosen -> {
+            Claim next = best;
+            if (chosen != null && chosen.type() != Action.Type.PASS && (best == null || compareClaimOrder(
+                    chosen.priority(), seat, best.action.priority(), best.seat, discarder.seat) < 0))
+                next = new Claim(seat, chosen);
+            claimNext(discarder, tile, byPlayer, order, index + 1, next, continuation);
+        });
+    }
+
+    /** 候选排序、提前结束和最终仲裁共用：动作优先级优先，同级按座位顺序。 */
+    private static int compareClaimOrder(int priority, Seat seat,
+                                         int otherPriority, Seat otherSeat, Seat discarder) {
+        int compared = Integer.compare(priority, otherPriority);
+        return compared != 0 ? compared
+                : Integer.compare(seat.stepsAfter(discarder), otherSeat.stepsAfter(discarder));
     }
 
     private void applyDiscardAction(Player p, Player discarder, int tile, Action a) {
@@ -673,9 +705,6 @@ public class RoomManager {
                 break;
             case BU_GANG:
                 // 海南规则：补杠（碰后摸到第 4 张加杠）可被抢杠胡；有人抢则此杠作废
-                if (rules.canQiangGang(p, a.targetTile())) {
-                    return;
-                }
                 p.remove(a.targetTile(), 1);
                 for (int i = 0; i < p.melds.size(); i++) {
                     Meld m = p.melds.get(i);
@@ -734,31 +763,24 @@ public class RoomManager {
     }
 
     /** 补杠被抢：从离杠家最近者起逐个询问能否胡；有人胡即结束本把。 */
-    private boolean tryQiangGang(Player ganger, int tile) {
+    private void robKong(Player ganger, int tile, Runnable unclaimed) {
+        phase = Phase.ROB_KONG;
         List<Seat> order = new ArrayList<>();
-        for (Seat s : Seat.values()) {
-            if (s == ganger.seat) {
-                continue;
-            }
-            if (judge.canHuWin(players.get(s), tile, false, true)) {
-                order.add(s);
-            }
+        for (Seat seat : Seat.values()) {
+            if (seat != ganger.seat && judge.canHuWin(players.get(seat), tile, false, true)) order.add(seat);
         }
-        if (order.isEmpty()) {
-            return false;
-        }
-        order.sort(Comparator.comparingInt(a -> a.stepsAfter(ganger.seat)));
-        for (Seat s : order) {
-            Player q = players.get(s);
-            List<Action> acts = new ArrayList<>();
-            acts.add(Action.hu(tile, ganger.seat));
-            Action chosen = requestAction(q, tile, acts);
-            if (chosen != null && chosen.type() == Action.Type.HU) {
-                qiangGangWin(q, ganger, tile);
-                return true;
-            }
-        }
-        return false;
+        order.sort(Comparator.comparingInt(seat -> seat.stepsAfter(ganger.seat)));
+        robNext(ganger, tile, order, 0, unclaimed);
+    }
+
+    private void robNext(Player ganger, int tile, List<Seat> order, int index, Runnable unclaimed) {
+        if (cancelled) return;
+        if (index == order.size()) { unclaimed.run(); return; }
+        Player player = players.get(order.get(index));
+        requestAction(player, tile, List.of(Action.hu(tile, ganger.seat)), chosen -> {
+            if (chosen != null && chosen.type() == Action.Type.HU) qiangGangWin(player, ganger, tile);
+            else robNext(ganger, tile, order, index + 1, unclaimed);
+        });
     }
 
     private void qiangGangWin(Player winner, Player ganger, int tile) {
@@ -777,13 +799,14 @@ public class RoomManager {
 
     // ==================== 决策请求（带超时；询问机制见 PromptSupport） ====================
 
-    private int requestDiscard(Player p) {
+    private void requestDiscard(Player p, Consumer<Integer> continuation) {
         Seat s = p.seat;
         if (config.hainan) {
             int cur = reportMode[s.ordinal()];
             if (cur != 0) {
                 // 已报听（此前的回合）：锁手，抓到什么打什么
-                return (p.lastDrawn >= 0 && p.hand.contains(p.lastDrawn)) ? p.lastDrawn : autoDiscard(p);
+                continuation.accept((p.lastDrawn >= 0 && p.hand.contains(p.lastDrawn)) ? p.lastDrawn : autoDiscard(p));
+                return;
             }
         }
         // 手牌里是否存在“打出某张仍听”的牌（报听资格由窗口决定，不限于刚摸那张）
@@ -794,13 +817,14 @@ public class RoomManager {
         if (config.hainan && p.controller.isAutoReport() && win != 0 && !ready.isEmpty()) {
             // 机器人：到窗口且存在“打出某张仍听”→ 报听并打出其中一张
             doReport(s, win);
-            return discardOnlyFrom(p, ready);
+            discardOnlyFrom(p, ready, continuation);
+            return;
         }
         final List<Integer> ban = (eatBan == null || eatBan.isEmpty()) ? null : new ArrayList<>(eatBan);
         p.controller.prepareDiscard(canReport);
         final int forcedTile = ban == null ? autoDiscard(p) : autoDiscard(p, ban);
         listener.onTurnStart(s, "discard", config.discardTimeoutMs);
-        Integer chosen = prompts.prompt(s, "出牌", config.discardTimeoutMs,
+        prompts.<Integer>promptAsync(s, "出牌", config.discardTimeoutMs,
                 reply -> p.controller.onDiscardTurn(s, new ArrayList<>(p.hand), p.lastDrawn,
                         ban == null ? new ArrayList<>() : ban,
                         new Responder() {
@@ -820,18 +844,21 @@ public class RoomManager {
                                 reply.accept(REPORT_TILE);
                             }
                         }),
-                forcedTile);
-        if (chosen != null && chosen == REPORT_TILE && canReport) {
-            doReport(s, win);
-            // 报听当轮：可在“打出后仍听”的牌里任选一张打出（其余置灰）；之后回合抓到什么打什么
-            return discardOnlyFrom(p, ready);
-        }
-        boolean legal = chosen != null && p.hand.contains(chosen) && (ban == null || !ban.contains(chosen));
-        return legal ? chosen : forcedTile;
+                forcedTile, chosen -> {
+                    p.controller.onDecisionFinished();
+                    if (chosen != null && chosen == REPORT_TILE && canReport) {
+                        doReport(s, win);
+                        // 报听当轮：可在“打出后仍听”的牌里任选一张打出（其余置灰）；之后回合抓到什么打什么
+                        discardOnlyFrom(p, ready, continuation);
+                        return;
+                    }
+                    boolean legal = chosen != null && p.hand.contains(chosen) && (ban == null || !ban.contains(chosen));
+                    continuation.accept(legal ? chosen : forcedTile);
+                });
     }
 
     /** 只允许打出 allowed 里的牌（报听当轮用）；机器人即时作答，真人以置灰选择。 */
-    private int discardOnlyFrom(Player p, List<Integer> allowed) {
+    private void discardOnlyFrom(Player p, List<Integer> allowed, Consumer<Integer> continuation) {
         List<Integer> ban = new ArrayList<>();
         for (int t : p.hand) {
             if (!allowed.contains(t) && !ban.contains(t)) {
@@ -841,7 +868,7 @@ public class RoomManager {
         p.controller.prepareDiscard(false);
         final int forcedTile = autoDiscard(p, ban); // ban=不可打 → 只会返回 allowed 里的牌
         listener.onTurnStart(p.seat, "discard", config.discardTimeoutMs);
-        Integer chosen = prompts.prompt(p.seat, "出牌", config.discardTimeoutMs,
+        prompts.<Integer>promptAsync(p.seat, "出牌", config.discardTimeoutMs,
                 reply -> p.controller.onDiscardTurn(p.seat, new ArrayList<>(p.hand), p.lastDrawn,
                         ban,
                         new Responder() {
@@ -861,12 +888,15 @@ public class RoomManager {
                                 reply.accept(null);
                             }
                         }),
-                forcedTile);
-        return (chosen != null && p.hand.contains(chosen) && allowed.contains(chosen)) ? chosen : forcedTile;
+                forcedTile, chosen -> {
+                    p.controller.onDecisionFinished();
+                    continuation.accept((chosen != null && p.hand.contains(chosen) && allowed.contains(chosen))
+                            ? chosen : forcedTile);
+                });
     }
 
-    private Action requestAction(Player p, int tile, List<Action> opts) {
-        return prompts.prompt(p.seat, "吃碰杠胡", config.actionTimeoutMs,
+    private void requestAction(Player p, int tile, List<Action> opts, Consumer<Action> continuation) {
+        prompts.<Action>promptAsync(p.seat, "吃碰杠胡", config.actionTimeoutMs,
                 reply -> p.controller.onActionChance(p.seat, tile, opts,
                         new Responder() {
                             public void discard(int k) {
@@ -881,11 +911,14 @@ public class RoomManager {
                                 reply.accept(null);
                             }
                         }),
-                null);
+                null, chosen -> {
+                    p.controller.onDecisionFinished();
+                    continuation.accept(chosen != null && opts.contains(chosen) ? chosen : null);
+                });
     }
 
-    private Action requestDrawAction(Player p, List<Action> opts) {
-        return prompts.prompt(p.seat, "自摸/杠", config.actionTimeoutMs,
+    private void requestDrawAction(Player p, List<Action> opts, Consumer<Action> continuation) {
+        prompts.<Action>promptAsync(p.seat, "自摸/杠", config.actionTimeoutMs,
                 reply -> p.controller.onDrawChance(p.seat, p.lastDrawn, opts,
                         new Responder() {
                             public void discard(int k) {
@@ -900,7 +933,10 @@ public class RoomManager {
                                 reply.accept(null);
                             }
                         }),
-                null);
+                null, chosen -> {
+                    p.controller.onDecisionFinished();
+                    continuation.accept(chosen != null && opts.contains(chosen) ? chosen : null);
+                });
     }
 
     /**

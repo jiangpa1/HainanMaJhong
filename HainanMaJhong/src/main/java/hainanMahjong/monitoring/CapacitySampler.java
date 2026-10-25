@@ -4,7 +4,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import java.lang.management.*;
 import java.nio.file.*;
@@ -13,6 +12,13 @@ import java.util.*;
 /** 单独的采样任务，游戏线程不执行主机读取或外部探测。 */
 @Component
 public class CapacitySampler {
+    private final hainanMahjong.concurrent.VirtualPeriodicTask sampler =
+            new hainanMahjong.concurrent.VirtualPeriodicTask("mahjong-capacity-sample");
+    @Value("${capacity.sample-ms:10000}") private long sampleMs;
+    @javax.annotation.PostConstruct public void start() {
+        sampler.start(this::sample, 0, sampleMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+    }
+    @javax.annotation.PreDestroy public void stop() { sampler.close(); }
     private final CapacityMetrics metrics;
     private final StringRedisTemplate redis;
     private final JdbcTemplate jdbc;
@@ -21,13 +27,16 @@ public class CapacitySampler {
     public CapacitySampler(CapacityMetrics metrics, StringRedisTemplate redis, JdbcTemplate jdbc) {
         this.metrics = metrics; this.redis = redis; this.jdbc = jdbc;
     }
-    @Scheduled(fixedDelayString = "${capacity.sample-ms:10000}")
+    // The platform clock dispatches to a virtual thread; there is no I/O on its clock thread.
     public void sample() {
         metrics.sampleRooms(); threads(); linux();
         if (probes) { redis(); mysql(); }
         metrics.gauge("mahjong.capacity.sample.timestamp", System.currentTimeMillis() / 1000);
     }
     private void threads() {
+        // ThreadMXBean counts platform threads, not virtual threads.
+        metrics.gauge("mahjong.virtual.events.active", hainanMahjong.engine.RoomEventLoop.activeEvents());
+        metrics.gauge("mahjong.virtual.events.completed", hainanMahjong.engine.RoomEventLoop.completedEvents());
         ThreadMXBean bean = ManagementFactory.getThreadMXBean(); long blocked = 0, engines = 0, timers = 0;
         for (ThreadInfo info : bean.getThreadInfo(bean.getAllThreadIds())) {
             if (info == null) continue;

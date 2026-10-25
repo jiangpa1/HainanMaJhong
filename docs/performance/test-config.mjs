@@ -15,7 +15,7 @@ export function validateConfig(raw,root) {
   if(!['full','delta'].includes(c.pushMode))throw Error('pushMode must be full or delta');
   const base=new URL(c.baseUrl);
   if(!['http:','https:'].includes(base.protocol)||base.username||base.password||base.search||base.hash||base.pathname!=='/')throw Error('baseUrl must be an explicit HTTP(S) origin');
-  if(!Array.isArray(c.tables)||!c.tables.length||c.tables.some(n=>!Number.isInteger(n)||n<1||n>128))throw Error('tables must contain integers 1..128');
+  if(!Array.isArray(c.tables)||!c.tables.length||c.tables.some(n=>!Number.isInteger(n)||n<1||n>512))throw Error('tables must contain integers 1..512');
   if(!Number.isInteger(c.seconds)||c.seconds<30||c.seconds>1800)throw Error('seconds must be 30..1800');
   if(!['identity','gzip'].includes(c.encoding)||!['legacy','v2'].includes(c.recordsVersion)||!['baseline','p2','overload'].includes(c.acceptanceProfile))throw Error('Invalid encoding/version/profile');
   if(!Number.isFinite(c.rpsPerTable)||c.rpsPerTable<=0||c.rpsPerTable>5)throw Error('rpsPerTable must be >0 and <=5');

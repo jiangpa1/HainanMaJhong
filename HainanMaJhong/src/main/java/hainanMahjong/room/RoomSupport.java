@@ -9,7 +9,7 @@ import hainanMahjong.engine.model.Seat;
  * 如果留在某一方，另一方就得复制一份；复制两份的常量/判定迟早会不一致。</p>
  *
  * <p>本类<b>无状态、不加锁、不修改任何东西</b> —— 只读 {@link Room} / {@link Member} 的字段。
- * 调用方通常已持有 {@code synchronized (room)}，这里不再加锁。</p>
+ * 调用方通常已持有 {@code room.lock}，这里不再加锁。</p>
  */
 public final class RoomSupport {
 

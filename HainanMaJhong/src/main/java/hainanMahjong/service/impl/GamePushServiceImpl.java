@@ -24,12 +24,12 @@ import java.util.Map;
  * <p>实现要点：</p>
  * <ul>
  *   <li><b>无状态</b>：没有房间缓存、不记成员，所有数据从传入的 {@link Room} 读</li>
- *   <li>广播沿用 {@code synchronized (room)}，与座位绑定及 welcome 顺序一致</li>
+ *   <li>广播沿用 {@code room.lock}，与座位绑定及 welcome 顺序一致</li>
  *   <li><b>无 I/O</b>：不碰 MySQL / Redis，只有 WebSocket 发送</li>
  * </ul>
  *
  * <p>{@link #sendJson} 是全项目唯一的 WebSocket 发送出口：它统一处理
- * "session 已关闭"、发送异常，并对 session 加锁 —— 避免两个线程同时往同一个
+ * "session 已关闭"、发送异常，并使用会话发送锁 —— 避免两个线程同时往同一个
  * WebSocket 写帧（原生 WebSocket 的 {@code sendMessage} 不是线程安全的）。</p>
  */
 @Service
@@ -45,7 +45,8 @@ public class GamePushServiceImpl implements GamePushService {
     /** 向房间内所有真人的牌局连接广播（机器人跳过；连接未打开的跳过）。 */
     @Override
     public void broadcastGame(Room room, Map<String, Object> msg) {
-        synchronized (room) {
+        room.lock.lock();
+        try {
             if (room.stop || room.state == hainanMahjong.room.State.CLOSED) return;
             if (metrics != null) {
                 long sequence = metrics.delivery(room, msg);
@@ -68,7 +69,7 @@ public class GamePushServiceImpl implements GamePushService {
                 }
                 sendEncoded(m.gameWs, payload);
             }
-        }
+        } finally { room.lock.unlock(); }
     }
 
     /**
@@ -81,7 +82,8 @@ public class GamePushServiceImpl implements GamePushService {
      */
     @Override
     public void broadcastGameMasked(Room room, Seat owner, Map<String, Object> full, Map<String, Object> masked) {
-        synchronized (room) {
+        room.lock.lock();
+        try {
             if (room.stop || room.state == hainanMahjong.room.State.CLOSED) return;
             Encoded fullPayload = null, maskedPayload = null;
             for (Member m : new ArrayList<>(room.members.values())) {
@@ -104,13 +106,13 @@ public class GamePushServiceImpl implements GamePushService {
                 }
                 sendEncoded(m.gameWs, payload);
             }
-        }
+        } finally { room.lock.unlock(); }
     }
 
     /**
      * 唯一的发送出口（单个收件人）。
      *
-     * <p>对 session 加锁是必须的：原生 WebSocket 的 {@code sendMessage} 不是线程安全的，
+     * <p>使用会话发送锁是必须的：原生 WebSocket 的 {@code sendMessage} 不是线程安全的，
      * 而房间线程与 WebSocket 线程可能同时发消息。</p>
      */
     @Override
@@ -168,7 +170,9 @@ public class GamePushServiceImpl implements GamePushService {
         String outcome = "closed";
         if (metrics != null) metrics.sending();
         try {
-            synchronized (session) {
+            var guardLock3 = hainanMahjong.websocket.SessionSendLocks.lock(session);
+            guardLock3.lock();
+            try {
                 if (session.isOpen()) {
                     String json = payload.json;
                     if (session.getAttributes().containsKey(GamePushProtocol.MODE)) {
@@ -185,7 +189,7 @@ public class GamePushServiceImpl implements GamePushService {
                     session.sendMessage(new TextMessage(json));
                     outcome = "success";
                 }
-            }
+            } finally { guardLock3.unlock(); }
         } catch (Exception e) {
             outcome = "error";
             log.warn("发送消息失败：{}", e.getMessage());

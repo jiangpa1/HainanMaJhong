@@ -10,20 +10,13 @@ import java.util.EnumMap;
 import java.util.Map;
 
 /**
- * 一个联机房间的<b>共享状态</b>。
- *
- * <p>⚠️⚠️ <b>本对象同时是锁对象</b>。所有模块（门面、引擎、推送、快照）必须继续对
- * <b>同一个 Room 实例</b>加 {@code synchronized}，不要各模块各配一把锁 ——
- * 现有的串行化保证正是建立在"一把锁管全部房间状态"之上。</p>
- *
- * <p>Java 的 {@code synchronized} 可重入，所以"持有 room 锁的方法调用另一个同样锁 room 的方法"
- * 是安全的。快照写入在锁外；创建会话、结算提交及关闭保护目前在锁内决定顺序，
- * 防止关闭与已提交结果交叉。不得在锁内等待引擎线程结束。</p>
- *
- * <p>字段多为 public 是历史原因（原为 impl 的嵌套类，靠同包可见性直接访问）。
- * 拆分时保持原样以最小化改动；后续若要收紧访问性，应改为方法而不是直接改字段可见性。</p>
+ * Shared room state. Every room-state caller must use the SAME reentrant room.lock.
+ * I/O may suspend virtual threads while this lock is held, without holding a JVM monitor.
+ * Never wait for hand completion while holding the room lock.
  */
 public class Room {
+
+    public final java.util.concurrent.locks.ReentrantLock lock = new java.util.concurrent.locks.ReentrantLock();
 
     public final String code;
     public final long hostUserId;
@@ -56,8 +49,12 @@ public class Room {
     /** 置位后引擎循环会尽快退出（解散房间时用）。 */
     public volatile boolean stop;
 
-    /** 跑块的线程（名字前缀 room-bind- 或 room-engine-），守护线程。 */
-    public Thread blockThread;
+    /** Serial mailbox and cancellable lifecycle deadline; no per-room worker or timer thread. */
+    public final hainanMahjong.engine.RoomEventLoop events = new hainanMahjong.engine.RoomEventLoop();
+    public volatile boolean engineRunning;
+    public boolean awaitingBind;
+    public volatile long engineEpoch;
+    public java.util.concurrent.ScheduledFuture<?> engineTimer;
 
     /** 从 Redis 重建房间后，用于续跑本块；被消费后置 null。 */
     public volatile EngineStart resumeSeed;

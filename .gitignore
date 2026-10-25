@@ -120,3 +120,6 @@ back/*.jar
 /HainanMaJhong/ops/dev-connect/
 /HainanMaJhong/ops/monitoring/*.bak-*
 /online-capacity-retest.mjs
+
+# Local source backup before the event-driven engine migration.
+/backups/

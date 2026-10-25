@@ -20,7 +20,26 @@ import static org.junit.jupiter.api.Assertions.*;
         "jwt.access-expiration=30m", "jwt.refresh-expiration=7d", "jwt.issuer=test",
         "room-close-outbox.worker-enabled=false"})
 @org.springframework.boot.test.autoconfigure.actuate.metrics.AutoConfigureMetrics
+@org.springframework.context.annotation.Import(CapacityManagementTest.Probe.class)
 class CapacityManagementTest {
+    @org.springframework.boot.test.context.TestConfiguration(proxyBeanMethods = false)
+    static class Probe {
+        @org.springframework.context.annotation.Bean
+        org.springframework.boot.web.servlet.FilterRegistrationBean<javax.servlet.Filter> virtualProbe() {
+            var filter = new org.springframework.boot.web.servlet.FilterRegistrationBean<javax.servlet.Filter>();
+            filter.setFilter((request, response, chain) -> {
+                response.setContentType("application/json");
+                response.getWriter().print(Thread.currentThread().isVirtual());
+            });
+            filter.setUrlPatterns(java.util.List.of("/virtual-thread-probe"));
+            return filter;
+        }
+    }
+
+    @Test void actualHttpRequestsExecuteOnVirtualThreads() {
+        assertEquals(Boolean.TRUE, http.getForObject("http://127.0.0.1:" + appPort + "/virtual-thread-probe", Boolean.class));
+    }
+
     @MockBean SchemaInitializer schema;
     @MockBean hainanMahjong.service.impl.RoomCloseOutbox outbox;
     @Autowired TestRestTemplate http;

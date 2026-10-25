@@ -199,7 +199,8 @@ curl.exe -s --noproxy "*" http://localhost:8080/api/debug/rooms
 | `delegate` | 这个座位的控制器委托是 `HumanPlayerController` 还是 `BotController`。是 Bot 就说明引擎**不会**向这家发询问 |
 | `pendingRequest` | 这家此刻有没有"正在等回答"的请求；不为 null 且一直不消失，说明引擎发过询问但没人应答 |
 | `gameWsOpen` / `hasGameWs` | 牌局连接是否还在 |
-| `blockThreadState` | 引擎线程状态；`WAITING` + `engineActive=true` 说明牌局在跑、在等人 |
+| `engineMode` / `engineRunning` | 执行模式为 `EVENT_DRIVEN`，后者表示本轮仍在进行 |
+| `enginePhase` / `awaitingBind` | 当前牌局阶段（如 `DISCARD`、`CLAIM`），以及是否正在等待入座 |
 
 > 这个端点由 `DebugController` 提供，且 `/api/debug/**` 被加进了 `WebMvcConfig.AUTH_FREE`。
 > **排查结束后应把这两处一起删掉**——它不该留在生产代码里。

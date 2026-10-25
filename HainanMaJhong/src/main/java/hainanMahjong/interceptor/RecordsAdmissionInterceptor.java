@@ -19,9 +19,7 @@ public class RecordsAdmissionInterceptor implements HandlerInterceptor {
         if (!"GET".equals(request.getMethod()) || request.getAttribute(PERMIT) != null) return true;
         Object user = request.getAttribute("userId");
         if (!(user instanceof Number id)) return true; // JWT interceptor owns unauthorized responses.
-        String path = request.getRequestURI().substring(request.getContextPath().length());
-        boolean legacy = path.equals("/api/records") || path.startsWith("/api/records/");
-        request.setAttribute(PERMIT, guard.records(id.longValue(), request, legacy));
+        request.setAttribute(PERMIT, guard.records(id.longValue(), request, false));
         return true;
     }
 

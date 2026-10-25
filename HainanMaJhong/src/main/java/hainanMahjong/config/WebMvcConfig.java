@@ -71,6 +71,6 @@ public class WebMvcConfig implements WebMvcConfigurer {
                 .excludePathPatterns(AUTH_FREE);
 
         registry.addInterceptor(recordsAdmissionInterceptor)
-                .addPathPatterns("/api/records", "/api/records/**", "/api/v2/records", "/api/v2/records/**");
+                .addPathPatterns("/api/v2/records", "/api/v2/records/**");
     }
 }

@@ -393,19 +393,15 @@ export function updatePassword(oldPassword, newPassword, confirmNewPassword) {
  * 这个坑真实发生过，别改成 50。
  */
 export function records(pageNum = 1, pageSize = 20, readThroughSessionId) {
-  if (recordsApiV2Enabled) return recordsV2.list(pageNum, pageSize, readThroughSessionId)
-  const size = Math.max(1, Math.min(20, Number(pageSize) || 20))
-  return recordRequest(`/api/records?pageNum=${Number(pageNum) || 1}&pageSize=${size}`, { raw: true })
+  return recordsV2.list(pageNum, pageSize, readThroughSessionId)
 }
 
 export function recordsByRoom(roomId) {
-  if (recordsApiV2Enabled) return recordsV2.byRoom(roomId).then(overview => ({ _v2: true, roomId: overview.roomId, sessionId: overview.sessionId, overview }))
-  return recordRequest(`/api/records/byRoom?roomId=${encodeURIComponent(roomId)}`)
+  return recordsV2.byRoom(roomId).then(overview => ({ _v2: true, roomId: overview.roomId, sessionId: overview.sessionId, overview }))
 }
 
 export function recordDetail(sessionId) {
-  if (recordsApiV2Enabled) return recordsV2.overview(sessionId).then(overview => ({ _v2: true, roomId: overview.roomId, sessionId: overview.sessionId, overview }))
-  return recordRequest(`/api/records/${encodeURIComponent(sessionId)}`)
+  return recordsV2.overview(sessionId).then(overview => ({ _v2: true, roomId: overview.roomId, sessionId: overview.sessionId, overview }))
 }
 
 function recordRequest(url, options = {}, cacheOptions = {}) {

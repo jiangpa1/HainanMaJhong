@@ -91,14 +91,16 @@ public class DebugController {
         m.put("blockNo", room.blockNo);
         m.put("sessionId", room.sessionId);
 
-        Thread bt = room.blockThread;
-        m.put("blockThreadAlive", bt != null && bt.isAlive());
-        m.put("blockThreadState", bt == null ? null : bt.getState().name());
+        m.put("engineMode", "EVENT_DRIVEN");
+        m.put("engineRunning", room.engineRunning);
+        m.put("awaitingBind", room.awaitingBind);
 
         // 引擎实例在打牌时才非 null；两把之间为 null
         RoomManager rm = room.active;
         m.put("engineActive", rm != null);
         if (rm != null) {
+            m.put("enginePhase", rm.phase().name());
+            m.put("pendingTimers", rm.pendingTimerCount());
             m.put("deckLeft", rm.deckSize());
             m.put("winnerSeat", rm.getResult() == null || rm.getResult().winner == null
                     ? null : rm.getResult().winner.name());

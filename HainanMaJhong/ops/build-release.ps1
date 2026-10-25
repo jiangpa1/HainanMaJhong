@@ -24,6 +24,9 @@ if (Test-Path -LiteralPath $target) {
 }
 Push-Location $project
 try {
+    $javaVersion = (& java --version 2>&1 | Out-String)
+    if ($LASTEXITCODE -ne 0 -or $javaVersion -notmatch '(?m)^(?:openjdk|java)\s+(\d+)') { throw 'JDK 21 is required' }
+    if ([int]$Matches[1] -lt 21) { throw 'JDK 21 or newer is required' }
     Invoke-Checked 'java' @('-version')
     Invoke-Checked $Maven @('--version')
     Push-Location (Join-Path $project 'frontend')
